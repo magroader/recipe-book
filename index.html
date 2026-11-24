@@ -242,7 +242,13 @@
       <p class="hint" id="authStatus" role="status" hidden style="margin:14px 0 0"></p>
       <div class="err" id="authErr" hidden></div>
     </div>
-    <div class="loading" id="loadingBox" hidden>Loading your recipe book…</div>
+    <div class="loading" id="loadingBox" hidden>
+      <p id="loadingText" style="margin:0">Loading your recipe book…</p>
+      <div id="loadingActions" hidden style="margin-top:16px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+        <button class="btn primary" id="loadingRetryBtn" type="button">Try again</button>
+        <button class="btn" id="loadingSignOutBtn" type="button">Sign out</button>
+      </div>
+    </div>
   </div>
 
   <div id="app" hidden>
@@ -463,9 +469,18 @@ var sbLoadPromise = null;
 function loadScriptOnce(src){
   return new Promise(function(resolve, reject){
     var s = document.createElement("script");
+    var done = false;
+    /* A hung CDN connection must not hang sign-in forever: give each
+       source a few seconds, then let the next fallback (or the direct
+       Google link) take over. */
+    var timer = setTimeout(function(){
+      if (done) return; done = true;
+      if (s.parentNode) s.parentNode.removeChild(s);
+      reject(new Error("Timed out loading " + src));
+    }, 7000);
     s.src = src;
-    s.onload = function(){ resolve(); };
-    s.onerror = function(){ reject(new Error("Could not load " + src)); };
+    s.onload = function(){ if (done) return; done = true; clearTimeout(timer); resolve(); };
+    s.onerror = function(){ if (done) return; done = true; clearTimeout(timer); reject(new Error("Could not load " + src)); };
     document.head.appendChild(s);
   });
 }
@@ -491,6 +506,19 @@ var DB = {
     signInWithGoogle: function(){
       if (!sb) return Promise.reject(new Error("The sign-in library is not loaded yet."));
       return sb.auth.signInWithOAuth({ provider: "google", options: { redirectTo: window.location.href.split("#")[0].split("?")[0] } });
+    },
+    /* Ask the library for the Google sign-in address WITHOUT letting it
+       navigate this page. This page usually runs inside a frame, and
+       Google refuses to load inside one — the old in-frame redirect is
+       exactly what left the button stuck on "Opening…". The caller
+       opens the returned address in a new, top-level tab instead. */
+    googleUrl: function(){
+      if (!sb) return Promise.reject(new Error("The sign-in library is not loaded yet."));
+      return sb.auth.signInWithOAuth({ provider: "google", options: { redirectTo: window.location.href.split("#")[0].split("?")[0], skipBrowserRedirect: true } }).then(function(res){
+        if (res && res.error) throw res.error;
+        if (res && res.data && res.data.url) return res.data.url;
+        throw new Error("Google sign-in did not return a sign-in address.");
+      });
     },
     signOut: function(){ return sb ? sb.auth.signOut() : Promise.resolve(); },
     onChange: function(cb){ return sb.auth.onAuthStateChange(cb); }
@@ -701,7 +729,7 @@ $("backToGroupsBtn").addEventListener("click", function(){ renderGroups(); show(
 
 /* ============ Data loading ============ */
 function loadAll(){
-  return Promise.all([
+  var work = Promise.all([
     DB.profiles.list(), DB.recipes.list(), DB.recipes.shares(),
     DB.groups.list(), DB.groups.members(),
     DB.events.list(), DB.events.shares(), DB.events.dishes(), DB.events.messages(), DB.events.checklist(),
@@ -715,10 +743,18 @@ function loadAll(){
     S.profile = profileById(S.user.id) || null;
     return loadPhotoUrls();
   });
+  /* One stalled request must never hold the whole book hostage: if the
+     load hasn't finished in 25 seconds, fail it so the caller can show
+     an error with a retry instead of spinning on "Loading…" forever. */
+  return Promise.race([work, new Promise(function(resolve, reject){
+    setTimeout(function(){ reject(new Error("Loading took too long — the data didn't come back. Check your connection and try again.")); }, 25000);
+  })]);
 }
 function loadPhotoUrls(){
   var jobs = S.recipes.filter(function(r){ return r.photo_path; }).map(function(r){
-    return DB.photos.signedUrl(r.photo_path).then(function(res){ if (!res.error && res.data) S.photoUrls[r.id] = res.data.signedUrl; }).catch(function(){});
+    var job = DB.photos.signedUrl(r.photo_path).then(function(res){ if (!res.error && res.data) S.photoUrls[r.id] = res.data.signedUrl; }).catch(function(){});
+    /* A hung photo URL must not block the book from opening. */
+    return Promise.race([job, new Promise(function(resolve){ setTimeout(resolve, 6000); })]);
   });
   return Promise.all(jobs);
 }
@@ -752,41 +788,111 @@ $("googleBtn").addEventListener("click", function(){
   btn.disabled = true;
   status.textContent = "Opening Google sign-in…";
   status.hidden = false;
-  function fail(msg){
-    signingIn = false;
-    btn.disabled = false;
-    status.hidden = true;
-    err.textContent = msg;
-    err.hidden = false;
+  var redirectTo = window.location.href.split("#")[0].split("?")[0];
+  /* Supabase's Google authorize endpoint, built without the library.
+     This is the guaranteed fallback: computable immediately, so the
+     reader always ends up with a working route to Google. */
+  var directUrl = CONFIG.supabaseUrl + "/auth/v1/authorize?provider=google&redirect_to=" + encodeURIComponent(redirectTo);
+  var finished = false;
+  function attrUrl(u){ return String(u).replace(/&/g, "&amp;").replace(/"/g, "&quot;"); }
+  function reenable(){ signingIn = false; btn.disabled = false; }
+  function showManualLink(url, note){
+    if (finished) return; finished = true;
+    reenable();
+    status.innerHTML = (note ? esc(note) + " " : "") + '<a href="' + attrUrl(url) + '" target="_blank" rel="noopener">Tap here to continue to Google sign-in</a>.';
+    status.hidden = false;
   }
-  ensureSb().then(function(ready){
-    if (ready && sb){
-      return DB.auth.signInWithGoogle().then(function(res){
-        if (res && res.error) fail("Google sign-in couldn't start: " + res.error.message);
-        /* On success the browser is navigating away to Google. */
-      });
+  function openAuthUrl(url){
+    if (finished) return;
+    /* Open Google in a NEW top-level tab. Navigating this page itself
+       (the old behaviour) fails silently when the page sits inside the
+       Muse frame: Google won't load framed, so the browser stayed put
+       and the button sat on "Opening…" forever. */
+    var win = null;
+    try { win = window.open(url, "_blank"); } catch (e) { win = null; }
+    if (win){
+      finished = true;
+      reenable();
+      status.textContent = "Google sign-in opened in a new tab — finish signing in there and you'll land in your recipe book. This tab stays as it is; if no tab appeared, tap Sign in with Google again.";
+      status.hidden = false;
+    } else {
+      showManualLink(url, "Your browser blocked the new sign-in tab.");
     }
-    /* The library couldn't be loaded from any CDN. Go straight to
-       Supabase's Google authorize endpoint — the same address the
-       library would have sent the browser to. */
-    status.textContent = "Taking you to Google sign-in…";
-    var redirectTo = window.location.href.split("#")[0].split("?")[0];
-    window.location.href = CONFIG.supabaseUrl + "/auth/v1/authorize?provider=google&redirect_to=" + encodeURIComponent(redirectTo);
-  }).catch(function(e){
-    fail("Google sign-in couldn't start: " + (e && e.message ? e.message : e) + " Check your connection and try again.");
+  }
+  /* Watchdog: whatever stalls — CDN, library, sign-in call — the
+     button must never sit on "Opening…" with nothing happening. */
+  setTimeout(function(){ showManualLink(directUrl, "Sign-in is taking a while."); }, 9000);
+  /* Don't wait on a slow or blocked CDN for more than a few seconds;
+     after that, go straight to Google via the direct address. */
+  var loadReady = Promise.race([
+    ensureSb(),
+    new Promise(function(resolve){ setTimeout(function(){ resolve(false); }, 5000); })
+  ]);
+  loadReady.then(function(ready){
+    if (finished) return;
+    if (ready && sb){
+      DB.auth.googleUrl().then(function(url){ openAuthUrl(url); }, function(){ openAuthUrl(directUrl); });
+    } else {
+      openAuthUrl(directUrl);
+    }
+  }).catch(function(){
+    openAuthUrl(directUrl);
   });
 });
 $("signOutBtn").addEventListener("click", function(){ DB.auth.signOut(); });
 
 var booted = false;
+var bootLoading = false;
+var bootUserId = null;
+var bootAttempt = 0;
+var lastSession = null;
+
+/* Resolve (true/false) after ms at the latest, whatever the wrapped
+   promise does — for startup steps that must never block the rest. */
+function settleWithin(promise, ms){
+  return Promise.race([
+    Promise.resolve(promise).then(function(){ return true; }, function(){ return false; }),
+    new Promise(function(resolve){ setTimeout(function(){ resolve(false); }, ms); })
+  ]);
+}
+function withTimeout(promise, ms, message){
+  return Promise.race([
+    promise,
+    new Promise(function(resolve, reject){ setTimeout(function(){ reject(new Error(message)); }, ms); })
+  ]);
+}
+
 function onSession(session){
   if (session && session.user){
+    lastSession = session;
     S.user = session.user;
+    if (booted && bootUserId === session.user.id){
+      /* Already loaded for this user (getSession and the auth-state
+         listener both deliver the session) — just make sure the app
+         is what's on screen. */
+      $("loadingBox").hidden = true;
+      $("authGate").hidden = true;
+      $("app").hidden = false;
+      $("userBar").hidden = false;
+      return;
+    }
+    if (bootLoading && bootUserId === session.user.id) return; /* a load is already running */
+    bootLoading = true;
+    bootUserId = session.user.id;
+    var attempt = ++bootAttempt;
     $("signinBox").hidden = true;
+    $("authGate").hidden = false;
     $("loadingBox").hidden = false;
-    DB.claimInvites().catch(function(){}).then(function(){
+    $("loadingText").textContent = "Loading your recipe book…";
+    $("loadingActions").hidden = true;
+    /* claim_invites is a nice-to-have before the first load; a stalled
+       call must not hold the whole book hostage, so cap it and move on. */
+    settleWithin(DB.claimInvites(), 8000).then(function(){
+      if (attempt !== bootAttempt) return null;
       return loadAll();
     }).then(function(){
+      if (attempt !== bootAttempt) return;
+      bootLoading = false;
       booted = true;
       $("loadingBox").hidden = true;
       $("authGate").hidden = true;
@@ -795,17 +901,31 @@ function onSession(session){
       $("userEmail").textContent = S.user.email || "";
       renderRecipes(); updateCartCount(); show("recipes");
     }).catch(function(err){
-      $("loadingBox").hidden = true;
-      $("signinBox").hidden = false;
-      $("authErr").textContent = "Signed in, but your book couldn't load: " + (err.message || err);
-      $("authErr").hidden = false;
+      if (attempt !== bootAttempt) return;
+      bootLoading = false;
+      /* Stay put with a way out — never bounce back to sign-in and
+         never spin forever. The session is still good; Try again
+         just re-runs the data load. */
+      $("loadingText").textContent = "You're signed in, but your book couldn't load: " + (err && err.message ? err.message : err);
+      $("loadingActions").hidden = false;
     });
   } else {
-    S.user = null; booted = false;
+    S.user = null; booted = false; bootLoading = false; bootUserId = null; lastSession = null; bootAttempt++;
     $("app").hidden = true; $("userBar").hidden = true;
     $("authGate").hidden = false; $("signinBox").hidden = false; $("loadingBox").hidden = true;
   }
 }
+$("loadingRetryBtn").addEventListener("click", function(){
+  if (lastSession) onSession(lastSession);
+  else window.location.reload();
+});
+$("loadingSignOutBtn").addEventListener("click", function(){
+  bootAttempt++; bootLoading = false; booted = false;
+  var done = false;
+  function go(){ if (!done){ done = true; window.location.reload(); } }
+  try { Promise.resolve(DB.auth.signOut()).then(go, go); } catch (e) { go(); }
+  setTimeout(go, 2000);
+});
 ensureSb().then(function(ready){
   if (!ready || !sb){
     var el = $("authErr");
@@ -813,14 +933,27 @@ ensureSb().then(function(ready){
     el.hidden = false;
     return;
   }
-  DB.auth.getSession().then(function(res){ onSession(res.data.session); }).catch(function(err){
+  withTimeout(DB.auth.getSession(), 12000, "Checking your sign-in took too long. If you just came back from Google, give it a moment — the book should still open on its own — or tap Sign in with Google again.").then(function(res){ onSession(res.data.session); }).catch(function(err){
     var el = $("authErr");
     el.textContent = "Couldn't check your sign-in: " + (err && err.message ? err.message : err);
     el.hidden = false;
   });
   DB.auth.onChange(function(event, session){
-    if (event === "SIGNED_IN" && session && (!S.user || S.user.id !== session.user.id)) onSession(session);
-    if (event === "SIGNED_OUT") onSession(null);
+    /* Never run Supabase calls synchronously inside this callback.
+       The auth library holds its session lock while it notifies
+       subscribers, and every data query needs that same lock to get
+       the access token. The old code called onSession — which loads
+       all the data — directly from here after an OAuth redirect:
+       the queries waited on a lock the callback itself was holding,
+       nothing ever resolved or errored, and the page sat on
+       "Loading your recipe book…" forever. Deferring with
+       setTimeout(…, 0) lets the callback return and the lock
+       release before any data call runs. */
+    if (event === "SIGNED_OUT"){ setTimeout(function(){ onSession(null); }, 0); return; }
+    if ((event === "SIGNED_IN" || event === "INITIAL_SESSION") && session && session.user){
+      var s = session;
+      setTimeout(function(){ onSession(s); }, 0);
+    }
   });
 });
 
