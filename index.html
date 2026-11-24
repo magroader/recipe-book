@@ -275,7 +275,12 @@
     <div class="grid" id="recipeGrid"></div>
     <div class="empty" id="noResults" hidden>No recipes match that search. Try a different word, or clear the tag filter.</div>
     <div class="empty" id="starterBox" hidden>
-      <p style="margin:0">Your book is empty. Add your first recipe with the <strong>Add a recipe</strong> tab above.</p>
+      <p style="margin:0 0 12px">Your book is empty. Add your first recipe with the <strong>Add a recipe</strong> tab above, or bring in the starter content — the Pecan Pie Bars recipe, the Family group, and the Thanksgiving 2026 menu:</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center">
+        <button class="btn primary small" id="starterDownloadBtn" type="button">⬇ Download starter JSON</button>
+        <button class="btn small" id="starterImportBtn" type="button">⬆ Import JSON…</button>
+      </div>
+      <p class="hint" style="margin:10px 0 0">Download the starter file, then import it right back — or import an export from the preview site; both use the same format. Import and export also live in <strong>My settings</strong> (the cog, top right).</p>
     </div>
   </section>
 
@@ -356,6 +361,17 @@
   <section class="view" id="view-settings">
     <div class="section-head"><h2>My settings</h2></div>
     <div id="settingsBody"></div>
+    <div class="panel" style="margin-top:18px">
+      <h3 style="margin:0 0 4px;font-family:Lora,Georgia,serif">Import &amp; export</h3>
+      <p style="margin:0 0 12px;color:var(--ink-soft);font-size:.92rem">Import reads a recipe book JSON file — an export from this site, an export from the preview site, or the starter file below — and adds its groups, recipes, events, and menu items to your book. Anything already in your book (same group name, recipe title, or event) is reused, not duplicated, and every item&rsquo;s result is reported below — a failed item says why instead of silently skipping. People and sign-ins aren&rsquo;t part of the file; invite people by email from a group after importing.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn small" id="exportBtn" type="button">⬇ Export JSON</button>
+        <button class="btn small" id="importBtn" type="button">⬆ Import JSON…</button>
+        <button class="btn small" id="starterDownloadBtn2" type="button">⬇ Download starter JSON</button>
+      </div>
+      <input type="file" id="importFile" accept="application/json,.json" hidden>
+      <div id="importStatus" hidden style="margin-top:14px"></div>
+    </div>
   </section>
 
   <section class="view" id="view-add">
@@ -1797,6 +1813,371 @@ $("addForm").addEventListener("submit", function(e){
     return refresh().then(function(){ openDetail(created.id); });
   }).catch(function(err){ btn.disabled = false; btn.textContent = "Save recipe"; fail(err); });
 });
+
+/* ============ Import & export ============
+   One JSON shape for both directions, and the same shape the preview
+   site exports — so a preview export imports here directly:
+     { recipes: [...], events: [{ ..., dishes: [...] }], groups: [...] }
+   Rows in the file carry throwaway ids ("pecan-bars", "family");
+   importing maps them to fresh database ids in dependency order —
+   groups first, then recipes (owned by you; group ownership would be
+   rejected by the database until the group exists and you're a
+   member), then recipe shares, then events, event shares, dishes,
+   messages, and checklist items. EVERY insert's error is checked and
+   reported: the previous import toasted "imported" while the
+   database rejected each row, which is why nothing ever showed up. */
+var STARTER_DATA = {
+  format: "recipe-book",
+  version: 1,
+  recipes: [
+    {
+      id: "pecan-bars",
+      title: "Pecan Pie Bars",
+      description: "All the rich, gooey payoff of pecan pie on a buttery press-in crust — no rolling out pastry. Colin's contribution for Thanksgiving.",
+      tags: ["Dessert", "Baking", "Holiday", "Thanksgiving"],
+      source_url: "https://kitchenjoyblog.com/pecan-bars/",
+      source_type: "link",
+      dietary_tags: ["vegetarian", "contains tree nuts", "contains dairy", "contains eggs", "contains gluten"],
+      shared_with_groups: ["family"],
+      ingredients: [
+        { group: "For the crust", qty: "1 cup (5 oz)", name: "all-purpose flour" },
+        { group: "For the crust", qty: "¼ tsp", name: "baking powder" },
+        { group: "For the crust", qty: "1 tsp", name: "salt" },
+        { group: "For the crust", qty: "⅓ cup packed (2⅓ oz)", name: "light brown sugar" },
+        { group: "For the crust", qty: "¼ cup", name: "pecans, toasted and chopped coarse" },
+        { group: "For the crust", qty: "6 Tbsp", name: "unsalted butter, cut into small pieces and chilled" },
+        { group: "For the filling", qty: "4 Tbsp", name: "unsalted butter, melted" },
+        { group: "For the filling", qty: "½ cup packed (3½ oz)", name: "light brown sugar" },
+        { group: "For the filling", qty: "⅓ cup", name: "light corn syrup" },
+        { group: "For the filling", qty: "2 tsp", name: "vanilla extract" },
+        { group: "For the filling", qty: "1 Tbsp", name: "bourbon or dark rum (optional)" },
+        { group: "For the filling", qty: "½ tsp", name: "salt" },
+        { group: "For the filling", qty: "1", name: "large egg, lightly beaten" },
+        { group: "For the filling", qty: "1¾ cups", name: "pecans, toasted and chopped coarse" }
+      ],
+      steps: [
+        "Adjust the oven rack to the middle position and preheat to 350°F. Line a 9×9-inch pan with aluminum foil, leaving extra foil hanging over the edges (two long sheets overlapped perpendicularly works well). Press and smooth the foil into the corners, grease the foil, and set the pan aside.",
+        "Pulse the flour, baking powder, salt, brown sugar, and pecans in a food processor until the mixture resembles coarse cornmeal. Add the chilled butter and pulse until the mixture resembles breadcrumbs.",
+        "Press the mixture evenly into the prepared pan and bake until the crust is lightly golden brown and springs back when pressed, about 20 minutes.",
+        "While the crust bakes, whisk together the melted butter, brown sugar, corn syrup, vanilla, bourbon, and salt in a medium bowl until just combined. Add the egg and whisk until incorporated.",
+        "Pour the filling over the hot crust and sprinkle the pecans evenly over the top. Bake until the top is golden brown and the surface begins to crack, 22 to 25 minutes.",
+        "Let cool on a wire rack for 1 hour. Lift the bars out of the pan by the foil, move to a cutting board, cut into bars, and serve."
+      ]
+    }
+  ],
+  groups: [
+    { id: "family", name: "Family" }
+  ],
+  events: [
+    {
+      id: "thanksgiving-2026",
+      title: "Thanksgiving 2026",
+      event_date: "2026-11-26",
+      location: "Family Thanksgiving",
+      notes: "Menu from the shared Thanksgiving doc.",
+      shared_with_groups: ["family"],
+      dishes: [
+        { course: "Appetizers", recipe_id: null, item_name: "Charcuterie board", brought_by: "Karen", multiplier: 1, notes: "No garlic", dietary_tags: ["contains meat", "contains cheese", "contains dairy", "no garlic"] },
+        { course: "Appetizers", recipe_id: null, item_name: "Deviled eggs", brought_by: "Lori", multiplier: 1, notes: "" },
+        { course: "Appetizers", recipe_id: null, item_name: "Fresh fruit & veggie tray", brought_by: "Lori", multiplier: 1, notes: "", dietary_tags: ["vegan", "vegetarian", "gluten-free", "dairy-free", "no garlic"] },
+        { course: "Appetizers", recipe_id: null, item_name: "Hot apps", brought_by: "Mel", multiplier: 1, notes: "TBD" },
+        { course: "Appetizers", recipe_id: null, item_name: "Citrus cranberry mimosas", brought_by: "", multiplier: 1, notes: "" },
+        { course: "Mains & sides", recipe_id: null, item_name: "Turkey & gravy", brought_by: "Karen", multiplier: 1, notes: "", dietary_tags: ["contains meat", "gluten-free", "dairy-free"] },
+        { course: "Mains & sides", recipe_id: null, item_name: "Honey-baked ham", brought_by: "Karen", multiplier: 1, notes: "No garlic", dietary_tags: ["contains meat", "contains pork", "no garlic"] },
+        { course: "Mains & sides", recipe_id: null, item_name: "Mashed potatoes", brought_by: "Karen", multiplier: 1, notes: "No garlic", dietary_tags: ["vegetarian", "contains dairy", "no garlic"] },
+        { course: "Mains & sides", recipe_id: null, item_name: "Cranberry sauce", brought_by: "Karen", multiplier: 1, notes: "No garlic", dietary_tags: ["vegan", "vegetarian", "gluten-free", "no garlic"] },
+        { course: "Mains & sides", recipe_id: null, item_name: "Crescent rolls", brought_by: "Karen", multiplier: 1, notes: "No garlic", dietary_tags: ["vegetarian", "contains gluten", "contains dairy", "no garlic"] },
+        { course: "Mains & sides", recipe_id: null, item_name: "Mashed sweet potatoes", brought_by: "Karen", multiplier: 1, notes: "Contains garlic", dietary_tags: ["vegetarian", "contains garlic"] },
+        { course: "Mains & sides", recipe_id: null, item_name: "Macaroni and cheese", brought_by: "Rachel", multiplier: 1, notes: "", dietary_tags: ["vegetarian", "contains cheese", "contains dairy", "contains gluten"] },
+        { course: "Mains & sides", recipe_id: null, item_name: "Brussels sprouts", brought_by: "Rachel", multiplier: 1, notes: "", dietary_tags: ["vegan", "vegetarian", "gluten-free"] },
+        { course: "Mains & sides", recipe_id: null, item_name: "Vegetarian protein", brought_by: "Rachel", multiplier: 1, notes: "", dietary_tags: ["vegetarian"] },
+        { course: "Mains & sides", recipe_id: null, item_name: "Homemade bread", brought_by: "Lori", multiplier: 1, notes: "TBD" },
+        { course: "Mains & sides", recipe_id: null, item_name: "Stuffing & vegetarian gravy", brought_by: "Mel", multiplier: 1, notes: "", dietary_tags: ["vegetarian", "contains gluten"] },
+        { course: "Desserts", recipe_id: null, item_name: "Cheesecake", brought_by: "Karen", multiplier: 1, notes: "No garlic" },
+        { course: "Desserts", recipe_id: null, item_name: "Pumpkin pie", brought_by: "Karen", multiplier: 1, notes: "No garlic" },
+        { course: "Desserts", recipe_id: null, item_name: "Fall crockpot pie", brought_by: "Karen", multiplier: 1, notes: "No garlic" },
+        { course: "Desserts", recipe_id: null, item_name: "Pumpkin bread", brought_by: "Amelia", multiplier: 1, notes: "" },
+        { course: "Desserts", recipe_id: null, item_name: "Buckeyes", brought_by: "Lori", multiplier: 1, notes: "No-garlic version" },
+        { course: "Desserts", recipe_id: "pecan-bars", item_name: "Pecan bars", brought_by: "Colin", multiplier: 1, notes: "" },
+        { course: "Desserts", recipe_id: null, item_name: "Cookie decorating with the kids", brought_by: "Mel", multiplier: 1, notes: "" },
+        { course: "Desserts", recipe_id: null, item_name: "Pumpkin chocolate-chip muffins", brought_by: "Rachel", multiplier: 1, notes: "" }
+      ],
+      messages: [
+        { body: "Full menu from the shared doc is in. Please double-check the garlic notes — several dishes are marked no-garlic on purpose, and the mashed sweet potatoes do have garlic." }
+      ],
+      checklist: [
+        { item_text: "Bring a serving spatula for the bars" }
+      ]
+    }
+  ]
+};
+
+function downloadJsonFile(obj, filename){
+  var blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
+  var a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(function(){ URL.revokeObjectURL(a.href); }, 2000);
+}
+function exportBookJson(){
+  var data = {
+    format: "recipe-book", version: 1, exported_at: new Date().toISOString(),
+    groups: S.groups.map(function(g){ return { id: g.id, name: g.name, description: g.description || null }; }),
+    recipes: S.recipes.map(function(r){
+      return {
+        id: r.id, title: r.title, description: r.description || null,
+        tags: r.tags || [], servings: r.servings, prep_minutes: r.prep_minutes, cook_minutes: r.cook_minutes,
+        ingredients: r.ingredients || [], steps: r.steps || [], dietary_tags: r.dietary_tags || [],
+        source_url: r.source_url || null, source_type: r.source_type || null,
+        shared_with_groups: S.recipeShares.filter(function(s){ return s.recipe_id === r.id && s.shared_with_group_id; }).map(function(s){ return s.shared_with_group_id; }),
+        shared_with_emails: S.recipeShares.filter(function(s){ return s.recipe_id === r.id && s.shared_with_email; }).map(function(s){ return s.shared_with_email; })
+      };
+    }),
+    events: S.events.map(function(ev){
+      return {
+        id: ev.id, title: ev.title, event_date: ev.event_date || null, location: ev.location || null, notes: ev.notes || null,
+        shared_with_groups: S.eventShares.filter(function(s){ return s.event_id === ev.id && s.shared_with_group_id; }).map(function(s){ return s.shared_with_group_id; }),
+        shared_with_emails: S.eventShares.filter(function(s){ return s.event_id === ev.id && s.shared_with_email; }).map(function(s){ return s.shared_with_email; }),
+        dishes: S.dishes.filter(function(d){ return d.event_id === ev.id; }).map(function(d){
+          return { course: dishCourse(d), recipe_id: d.recipe_id || null, item_name: d.item_name, brought_by: d.brought_by || "", multiplier: +(d.multiplier || 1), notes: dishNotes(d), dietary_tags: d.dietary_tags || [] };
+        }),
+        messages: S.messages.filter(function(m){ return m.event_id === ev.id; }).map(function(m){ return { body: m.body }; }),
+        checklist: S.checklist.filter(function(c){ return c.event_id === ev.id && c.owner_id === S.user.id; }).map(function(c){ return { item_text: c.item_text }; })
+      };
+    })
+  };
+  downloadJsonFile(data, "recipe-book-export.json");
+  toast("Exported — one JSON file with your groups, recipes, and events.");
+}
+function importStatusHtml(lines, failures){
+  var html = '<div class="panel" style="box-shadow:none;margin:0"><h3 style="margin:0 0 8px;font-family:Lora,Georgia,serif;font-size:1.05rem">Import result</h3>' +
+    lines.map(function(l){ return '<p style="margin:0 0 4px">' + esc(l) + '</p>'; }).join("");
+  if (failures.length){
+    html += '<div class="err" style="margin:10px 0 0"><strong>' + failures.length + (failures.length === 1 ? " item" : " items") + ' failed:</strong><ul style="margin:6px 0 0;padding-left:18px">' +
+      failures.map(function(f){ return '<li>' + esc(f) + '</li>'; }).join("") + '</ul></div>';
+  }
+  return html + '</div>';
+}
+function isDuplicateErr(err){
+  return !!err && (err.code === "23505" || /duplicate|already exists|unique/i.test(err.message || ""));
+}
+function runImport(data){
+  var statusEl = $("importStatus");
+  function progress(msg){
+    if (statusEl){ statusEl.hidden = false; statusEl.innerHTML = '<p style="margin:0;color:var(--ink-soft)">' + esc(msg) + '</p>'; }
+    toast(msg);
+  }
+  var counts = { groupsNew: 0, groupsReused: 0, recipesNew: 0, recipesReused: 0, eventsNew: 0, eventsReused: 0, dishesNew: 0, dishesSkipped: 0, shares: 0, extras: 0 };
+  var failures = [];
+  var groupMap = {}, recipeMap = {}, eventMap = {};
+  var knownGroups = S.groups.slice(), knownRecipes = S.recipes.slice(), knownEvents = S.events.slice(), knownDishes = S.dishes.slice();
+  function findByName(list, key, val){
+    var v = String(val || "").trim().toLowerCase();
+    return list.find(function(x){ return String(x[key] || "").trim().toLowerCase() === v; }) || null;
+  }
+  var chain = Promise.resolve();
+  function step(fn){ chain = chain.then(fn); }
+
+  /* 1 — Groups (skip a preview export's per-event implicit groups;
+     the live book has no such thing — the event itself is shared). */
+  (Array.isArray(data.groups) ? data.groups : []).forEach(function(g){
+    if (!g || !g.name) return;
+    if (g.event_id) return;
+    step(function(){
+      var existing = findByName(knownGroups, "name", g.name);
+      if (existing){ groupMap[g.id] = existing.id; counts.groupsReused++; return null; }
+      return DB.groups.insert({ name: g.name, description: g.description || null, created_by: S.user.id }).then(function(res){
+        if (res.error) throw res.error;
+        groupMap[g.id] = res.data.id;
+        knownGroups.push(res.data);
+        counts.groupsNew++;
+      }).catch(function(err){ failures.push("Group “" + g.name + "”: " + (err && err.message ? err.message : err)); });
+    });
+  });
+
+  /* 2 — Recipes, owned by you (the insert rule the database enforces),
+     then shared with the mapped groups / emails from the file. */
+  (Array.isArray(data.recipes) ? data.recipes : []).forEach(function(r){
+    if (!r || !r.title) return;
+    step(function(){
+      var existing = findByName(knownRecipes, "title", r.title);
+      if (existing){ recipeMap[r.id] = existing.id; counts.recipesReused++; return null; }
+      var ings = (Array.isArray(r.ingredients) ? r.ingredients : []).map(function(ing){
+        if (typeof ing === "string") return { group: "", qty: "", name: ing };
+        var out = { group: ing.group || "", qty: ing.qty || ing.quantity || "", name: ing.name || "" };
+        if (ing.unit) out.unit = ing.unit;
+        return out;
+      });
+      var row = {
+        owner_user_id: S.user.id, owner_group_id: null,
+        title: r.title, description: r.description || null,
+        tags: Array.isArray(r.tags) ? r.tags : [],
+        servings: r.servings ? +r.servings : null,
+        prep_minutes: r.prep_minutes ? +r.prep_minutes : null,
+        cook_minutes: r.cook_minutes ? +r.cook_minutes : null,
+        ingredients: ings,
+        steps: Array.isArray(r.steps) ? r.steps : [],
+        dietary_tags: Array.isArray(r.dietary_tags) ? r.dietary_tags : [],
+        source_url: r.source_url || null,
+        source_type: r.source_type || (r.source_url ? "link" : "manual"),
+        created_by: S.profile ? profileName(S.profile) : (S.user.email || "")
+      };
+      var newId = null;
+      return DB.recipes.insert(row).then(function(res){
+        if (res.error) throw res.error;
+        newId = res.data.id;
+        recipeMap[r.id] = newId;
+        knownRecipes.push(res.data);
+        counts.recipesNew++;
+        var jobs = [];
+        (Array.isArray(r.shared_with_groups) ? r.shared_with_groups : []).forEach(function(gid){
+          var mapped = groupMap[gid];
+          if (!mapped) return;
+          jobs.push(DB.recipes.addShare({ recipe_id: newId, shared_with_group_id: mapped, granted_by: S.user.id }).then(function(sres){
+            if (sres.error && !isDuplicateErr(sres.error)) failures.push("Sharing recipe “" + r.title + "” with a group: " + sres.error.message);
+            else if (!sres.error) counts.shares++;
+          }));
+        });
+        (Array.isArray(r.shared_with_emails) ? r.shared_with_emails : []).forEach(function(email){
+          jobs.push(DB.recipes.addShare({ recipe_id: newId, shared_with_email: String(email).toLowerCase(), granted_by: S.user.id }).then(function(sres){
+            if (sres.error && !isDuplicateErr(sres.error)) failures.push("Sharing recipe “" + r.title + "” with " + email + ": " + sres.error.message);
+            else if (!sres.error) counts.shares++;
+          }));
+        });
+        return Promise.all(jobs);
+      }).catch(function(err){ failures.push("Recipe “" + r.title + "”: " + (err && err.message ? err.message : err)); });
+    });
+  });
+
+  /* 3 — Events, then their shares, dishes, messages, checklist. */
+  (Array.isArray(data.events) ? data.events : []).forEach(function(ev){
+    if (!ev || !ev.title) return;
+    step(function(){
+      var existing = knownEvents.find(function(x){
+        return String(x.title || "").trim().toLowerCase() === String(ev.title).trim().toLowerCase() &&
+          String(x.event_date || "") === String(ev.event_date || "");
+      }) || null;
+      var evIdPromise;
+      if (existing){ eventMap[ev.id] = existing.id; counts.eventsReused++; evIdPromise = Promise.resolve(existing.id); }
+      else {
+        evIdPromise = DB.events.insert({ owner_id: S.user.id, title: ev.title, event_date: ev.event_date || null, location: ev.location || null, notes: ev.notes || null }).then(function(res){
+          if (res.error) throw res.error;
+          eventMap[ev.id] = res.data.id;
+          knownEvents.push(res.data);
+          counts.eventsNew++;
+          return res.data.id;
+        });
+      }
+      return evIdPromise.then(function(evId){
+        var jobs = [];
+        (Array.isArray(ev.shared_with_groups) ? ev.shared_with_groups : []).forEach(function(gid){
+          var mapped = groupMap[gid];
+          if (!mapped) return;
+          jobs.push(DB.events.addShare({ event_id: evId, shared_with_group_id: mapped, granted_by: S.user.id }).then(function(sres){
+            if (sres.error && !isDuplicateErr(sres.error)) failures.push("Sharing event “" + ev.title + "” with a group: " + sres.error.message);
+            else if (!sres.error) counts.shares++;
+          }));
+        });
+        (Array.isArray(ev.shared_with_emails) ? ev.shared_with_emails : []).forEach(function(email){
+          jobs.push(DB.events.addShare({ event_id: evId, shared_with_email: String(email).toLowerCase(), granted_by: S.user.id }).then(function(sres){
+            if (sres.error && !isDuplicateErr(sres.error)) failures.push("Sharing event “" + ev.title + "” with " + email + ": " + sres.error.message);
+            else if (!sres.error) counts.shares++;
+          }));
+        });
+        var dishList = Array.isArray(ev.dishes) ? ev.dishes : (Array.isArray(ev.items) ? ev.items : []);
+        dishList.forEach(function(d){
+          if (!d || !d.item_name) return;
+          jobs.push(Promise.resolve().then(function(){
+            var dupe = knownDishes.some(function(x){ return x.event_id === evId && String(x.item_name || "").trim().toLowerCase() === String(d.item_name).trim().toLowerCase(); });
+            if (dupe){ counts.dishesSkipped++; return null; }
+            var bringer = typeof d.brought_by === "string" ? d.brought_by : (d.brought_by_name || "");
+            var row = {
+              event_id: evId,
+              recipe_id: d.recipe_id ? (recipeMap[d.recipe_id] || null) : null,
+              item_name: d.item_name,
+              brought_by: bringer || null,
+              brought_by_user_id: null, brought_by_email: null,
+              multiplier: d.multiplier ? +d.multiplier : 1,
+              notes: packNotes(d.course || "Other", d.notes || ""),
+              dietary_tags: Array.isArray(d.dietary_tags) ? d.dietary_tags : []
+            };
+            return DB.events.addDish(row).then(function(dres){
+              if (dres.error) throw dres.error;
+              knownDishes.push(dres.data);
+              counts.dishesNew++;
+            }).catch(function(err){ failures.push("Dish “" + d.item_name + "” on “" + ev.title + "”: " + (err && err.message ? err.message : err)); });
+          }));
+        });
+        (Array.isArray(ev.messages) ? ev.messages : []).forEach(function(m){
+          var body = typeof m === "string" ? m : (m && (m.body || m.text));
+          if (!body) return;
+          jobs.push(DB.events.addMessage({ event_id: evId, author_id: S.user.id, author_name: profileName(S.profile), body: body }).then(function(mres){
+            if (mres.error && !isDuplicateErr(mres.error)) failures.push("A message on “" + ev.title + "”: " + mres.error.message);
+            else if (!mres.error) counts.extras++;
+          }));
+        });
+        var checks = Array.isArray(ev.checklist) ? ev.checklist : [];
+        if (ev.checklists && typeof ev.checklists === "object"){
+          Object.keys(ev.checklists).forEach(function(k){ (ev.checklists[k] || []).forEach(function(c){ checks.push(c); }); });
+        }
+        checks.forEach(function(c){
+          var text = typeof c === "string" ? c : (c && (c.item_text || c.text));
+          if (!text) return;
+          jobs.push(DB.events.addChecklist({ event_id: evId, owner_id: S.user.id, item_text: text }).then(function(cres){
+            if (cres.error && !isDuplicateErr(cres.error)) failures.push("A checklist item on “" + ev.title + "”: " + cres.error.message);
+            else if (!cres.error) counts.extras++;
+          }));
+        });
+        return Promise.all(jobs);
+      }).catch(function(err){ failures.push("Event “" + ev.title + "”: " + (err && err.message ? err.message : err)); });
+    });
+  });
+
+  progress("Importing…");
+  return chain.then(function(){
+    var lines = [];
+    lines.push("Groups: " + counts.groupsNew + " added" + (counts.groupsReused ? ", " + counts.groupsReused + " already in your book (reused)" : "") + ".");
+    lines.push("Recipes: " + counts.recipesNew + " added" + (counts.recipesReused ? ", " + counts.recipesReused + " already in your book (reused)" : "") + ".");
+    lines.push("Events: " + counts.eventsNew + " added" + (counts.eventsReused ? ", " + counts.eventsReused + " already in your book (reused)" : "") + " · " + counts.dishesNew + " menu items added" + (counts.dishesSkipped ? ", " + counts.dishesSkipped + " already on the menu (skipped)" : "") + ".");
+    if (counts.shares) lines.push(counts.shares + (counts.shares === 1 ? " share" : " shares") + " set up from the file.");
+    if (counts.extras) lines.push(counts.extras + (counts.extras === 1 ? " message / checklist item" : " messages / checklist items") + " added.");
+    if (!failures.length && (counts.groupsNew + counts.recipesNew + counts.eventsNew + counts.dishesNew) > 0){
+      lines.push("Done — everything in the file is in your book now.");
+    }
+    if (statusEl){ statusEl.hidden = false; statusEl.innerHTML = importStatusHtml(lines, failures); }
+    toast(failures.length ? "Import finished with " + failures.length + " problem(s) — see My settings for details." : "Import complete.");
+    return refresh();
+  }).catch(function(err){
+    if (statusEl){ statusEl.hidden = false; statusEl.innerHTML = importStatusHtml(["The import stopped early."], [(err && err.message) ? err.message : String(err)]); }
+    fail(err);
+  });
+}
+function handleImportFile(file){
+  if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function(){
+    var data = null;
+    try { data = JSON.parse(reader.result); } catch (e) { data = null; }
+    if (!data || (!Array.isArray(data.recipes) && !Array.isArray(data.events) && !Array.isArray(data.groups))){
+      var statusEl = $("importStatus");
+      if (statusEl){ statusEl.hidden = false; statusEl.innerHTML = importStatusHtml([], ["That file doesn't look like a recipe book export — it needs recipes, events, or groups lists."]); }
+      toast("That file doesn't look like a recipe book export.");
+      return;
+    }
+    runImport(data);
+  };
+  reader.onerror = function(){ toast("Couldn't read that file."); };
+  reader.readAsText(file);
+}
+$("exportBtn").addEventListener("click", exportBookJson);
+$("importBtn").addEventListener("click", function(){ $("importFile").click(); });
+$("importFile").addEventListener("change", function(){ handleImportFile(this.files[0]); this.value = ""; });
+$("starterDownloadBtn").addEventListener("click", function(){ downloadJsonFile(STARTER_DATA, "recipe-book-starter.json"); toast("Starter JSON downloaded — now tap Import JSON and pick that file."); });
+$("starterDownloadBtn2").addEventListener("click", function(){ downloadJsonFile(STARTER_DATA, "recipe-book-starter.json"); toast("Starter JSON downloaded — now tap Import JSON and pick that file."); });
+$("starterImportBtn").addEventListener("click", function(){ show("settings"); $("importFile").click(); });
 
 </script>
 </body>
