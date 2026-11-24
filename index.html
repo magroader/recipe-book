@@ -1371,7 +1371,6 @@ function dishRowHtml(ev, d){
   var mult = d.multiplier && +d.multiplier !== 1 ? ' <span class="tag">' + esc(d.multiplier) + '×</span>' : "";
   return '<div class="dish-row" data-dishrow="' + d.id + '" role="button" tabindex="0" aria-label="Edit ' + esc(d.item_name) + '">' +
     '<span class="dish-name">' + esc(d.item_name) + mult + '</span>' +
-    (r ? "" : '<span style="font-size:.8rem;color:var(--gold);font-weight:700">no recipe yet</span>') +
     '<span class="dish-tools">' +
       '<button type="button" class="mini-btn" data-bringer="' + d.id + '">Bringing: ' + esc(bringerLabel(d)) + '</button>' +
       '<button type="button" class="mini-btn" data-link="' + d.id + '">🔗 ' + (r ? "Recipe" : "Recipe") + (r ? " · Change" : "") + '</button>' +
