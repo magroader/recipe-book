@@ -76,7 +76,6 @@
   .card:hover{border-color:var(--accent)}
   .card:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   .card img{width:100%;height:210px;object-fit:cover;display:block}
-  .card .ph{height:210px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:3rem}
   .card-body{padding:16px 18px 18px;display:flex;flex-direction:column;gap:8px;flex:1}
   .card h3{margin:0;font-size:1.3rem}
   .card p{margin:0;color:var(--ink-soft);font-size:.95rem}
@@ -1061,7 +1060,7 @@ function renderRecipes(){
   $("recipeGrid").innerHTML = list.map(function(r){
     var photo = S.photoUrls[r.id]
       ? '<img src="' + esc(S.photoUrls[r.id]) + '" alt="Photo of ' + esc(r.title) + '">'
-      : '<div class="ph" aria-hidden="true">🍽️</div>';
+      : '';
     var meta = [];
     if (r.servings) meta.push("Serves " + r.servings);
     if (r.prep_minutes) meta.push("Prep " + r.prep_minutes + " min");
