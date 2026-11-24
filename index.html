@@ -6,6 +6,7 @@
 <meta name="color-scheme" content="light dark" />
 <link rel="icon" href="data:," />
 <title>Recipe Book</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23a84e24'/%3E%3Cg fill='%23faf4ea' transform='rotate(18 32 32)'%3E%3Cellipse cx='32' cy='23' rx='9' ry='12'/%3E%3Crect x='29.2' y='31' width='5.6' height='23' rx='2.8'/%3E%3C/g%3E%3C/svg%3E" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,500;0,600;0,700;1,500&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
@@ -422,7 +423,7 @@ For the crust:
       <div class="field">
         <label>Dietary tags</label>
         <div id="fDietDisplay" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"></div>
-        <div class="hint">Matched against everyone&rsquo;s allow and deny lists on event menus.</div>
+        <div class="hint">Matched against everyone&rsquo;s prefer and avoid lists on event menus.</div>
       </div>
       <div class="field">
         <label>Owner</label>
@@ -518,6 +519,33 @@ function ensureSb(){
   }
   return sbLoadPromise;
 }
+/* Insert WITHOUT a RETURNING clause, resolving with the row as sent.
+   Why: groups and recipes have SELECT policies written as helper
+   functions (is_group_member / can_read_recipe) that look the row up in
+   its own table. While an INSERT ... RETURNING is still running, the
+   just-inserted row isn't visible to those lookups yet — and a group
+   creator's membership row only appears via an AFTER INSERT trigger —
+   so Postgres rejects the whole insert with "new row violates
+   row-level security policy" even though the row itself passes the
+   INSERT policy (created_by / owner_user_id = the signed-in user).
+   Events never hit this: their policy checks owner_id directly on the
+   row. So for groups and recipes the client supplies the id, inserts
+   plainly, and hands callers back the row it sent. */
+function clientId(){
+  if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function(c){
+    var r = Math.random() * 16 | 0;
+    return (c === "x" ? r : (r & 0x3 | 0x8)).toString(16);
+  });
+}
+function insertNoReturn(table, row){
+  var sent = Object.assign({}, row);
+  if (!sent.id) sent.id = clientId();
+  return sb.from(table).insert(sent).then(function(res){
+    if (res.error) return { data: null, error: res.error };
+    return { data: sent, error: null };
+  });
+}
 var DB = {
   auth: {
     getSession: function(){ return sb.auth.getSession(); },
@@ -549,7 +577,7 @@ var DB = {
   },
   recipes: {
     list: function(){ return sb.from("recipes").select("*").order("title"); },
-    insert: function(row){ return sb.from("recipes").insert(row).select().single(); },
+    insert: function(row){ return insertNoReturn("recipes", row); },
     update: function(id, patch){ return sb.from("recipes").update(patch).eq("id", id); },
     remove: function(id){ return sb.from("recipes").delete().eq("id", id); },
     shares: function(){ return sb.from("recipe_shares").select("*"); },
@@ -558,7 +586,7 @@ var DB = {
   },
   groups: {
     list: function(){ return sb.from("groups").select("*").order("name"); },
-    insert: function(row){ return sb.from("groups").insert(row).select().single(); },
+    insert: function(row){ return insertNoReturn("groups", row); },
     update: function(id, patch){ return sb.from("groups").update(patch).eq("id", id); },
     remove: function(id){ return sb.from("groups").delete().eq("id", id); },
     members: function(){ return sb.from("group_members").select("*"); },
@@ -676,8 +704,48 @@ function allowMatches(tags, person){
 }
 function dietIndicatorsHtml(tags, person){
   var html = "", conflicts = denyConflicts(tags, person), matches = allowMatches(tags, person);
-  conflicts.forEach(function(c){ html += '<span class="diet-warn"><span class="diet-icon">!</span>Contains ' + esc(c) + ' — on your deny list</span>'; });
-  matches.forEach(function(m){ html += '<span class="diet-ok"><span class="diet-icon">✓</span>' + esc(m) + ' — on your allow list</span>'; });
+  conflicts.forEach(function(c){ html += '<span class="diet-warn"><span class="diet-icon">!</span>Contains ' + esc(c) + ' — on your avoid list</span>'; });
+  matches.forEach(function(m){ html += '<span class="diet-ok"><span class="diet-icon">✓</span>' + esc(m) + ' — on your prefer list</span>'; });
+  return html;
+}
+/* Everyone in an event: the owner, people it's shared with directly,
+   and members of groups it's shared with (plus you). Pending email
+   invitees have no profile or lists yet, so they can't appear here. */
+function eventPeople(ev){
+  var ids = {}, out = [];
+  function add(uid){
+    if (!uid || ids[uid]) return;
+    ids[uid] = 1;
+    var p = profileById(uid);
+    if (p) out.push(p);
+  }
+  add(ev.owner_id);
+  S.eventShares.filter(function(s){ return s.event_id === ev.id; }).forEach(function(s){
+    add(s.shared_with_user_id);
+    if (s.shared_with_group_id) S.members.filter(function(m){ return m.group_id === s.shared_with_group_id; }).forEach(function(m){ add(m.user_id); });
+  });
+  add(S.user.id);
+  return out;
+}
+/* Event menus: a conflict is flagged for ANYONE in the event, not
+   just you — the tag reads simply "Contains garlic", and the tooltip
+   names whose avoid list it's on. Prefer matches stay personal. */
+function eventDietIndicatorsHtml(tags, ev){
+  var byKey = {}, order = [];
+  eventPeople(ev).forEach(function(p){
+    denyConflicts(tags, p).forEach(function(term){
+      var key = normalizeTag(term);
+      if (!byKey[key]){ byKey[key] = { term: term, names: [] }; order.push(key); }
+      var nm = profileName(p);
+      if (byKey[key].names.indexOf(nm) === -1) byKey[key].names.push(nm);
+    });
+  });
+  var html = "";
+  order.forEach(function(key){
+    var c = byKey[key];
+    html += '<span class="diet-warn" title="' + esc("Avoided by: " + c.names.join(", ")) + '"><span class="diet-icon">!</span>Contains ' + esc(c.term) + '</span>';
+  });
+  allowMatches(tags, S.profile).forEach(function(m){ html += '<span class="diet-ok"><span class="diet-icon">✓</span>' + esc(m) + ' — on your prefer list</span>'; });
   return html;
 }
 
@@ -1230,9 +1298,9 @@ function openDietaryPopup(profile, onSave){
   }
   function render(){
     openPopup("Dietary restrictions",
-      '<p style="margin:0 0 6px;color:var(--ink-soft);font-size:.92rem">Your <strong>allow list</strong> is what you want (dishes that match get a ✓). Your <strong>deny list</strong> is what you don&rsquo;t want (dishes that contain it get a ! warning).</p>' +
-      section("allow", allow, ALLOW_PRESETS, "Allow list — things I want") +
-      section("deny", deny, DENY_PRESETS, "Deny list — things I don&rsquo;t want") +
+      '<p style="margin:0 0 6px;color:var(--ink-soft);font-size:.92rem">Your <strong>prefer list</strong> is what you want (dishes that match get a ✓). Your <strong>avoid list</strong> is what you don&rsquo;t want (dishes that contain it get a ! warning).</p>' +
+      section("allow", allow, ALLOW_PRESETS, "Prefer list — things I want") +
+      section("deny", deny, DENY_PRESETS, "Avoid list — things I don&rsquo;t want") +
       '<div class="pop-actions"><button type="button" class="btn primary" id="popDietSave">Save</button><button type="button" class="btn" id="popDietCancel">Cancel</button></div>');
     document.querySelectorAll("[data-dlist]").forEach(function(cb){
       cb.addEventListener("change", function(){
@@ -1308,7 +1376,7 @@ function dishRowHtml(ev, d){
       '<button type="button" class="mini-btn" data-bringer="' + d.id + '">Bringing: ' + esc(bringerLabel(d)) + '</button>' +
       '<button type="button" class="mini-btn" data-link="' + d.id + '">🔗 ' + (r ? "Recipe" : "Recipe") + (r ? " · Change" : "") + '</button>' +
     '</span>' +
-    '<span>' + dietIndicatorsHtml(tags, S.profile) + '</span>' +
+    '<span>' + eventDietIndicatorsHtml(tags, ev) + '</span>' +
     (dishNotes(d) ? '<span style="color:var(--ink-soft);font-size:.88rem">' + esc(dishNotes(d)) + '</span>' : '') +
   '</div>';
 }
@@ -1377,12 +1445,40 @@ function peopleOptions(){
   var out = S.profiles.map(function(p){ return { userId: p.id, name: profileName(p), email: p.email || "" }; });
   return out;
 }
+/* Pending invitees for an event: people invited by email who haven't
+   signed in yet, so they have no profile to list. They were invited to
+   the event directly, or to a group the event is shared with (which
+   gives them the event too). Emails that already belong to a profile
+   are skipped — that person is listed by name above. */
+function eventInviteeEmails(ev){
+  if (!ev) return [];
+  var profileEmails = {};
+  S.profiles.forEach(function(p){ if (p.email) profileEmails[p.email.toLowerCase()] = 1; });
+  var seen = {}, out = [];
+  function add(email){
+    if (!email) return;
+    var e = String(email).trim().toLowerCase();
+    if (!e || seen[e] || profileEmails[e]) return;
+    seen[e] = 1; out.push(e);
+  }
+  var gids = {};
+  S.eventShares.filter(function(s){ return s.event_id === ev.id; }).forEach(function(s){
+    add(s.shared_with_email);
+    if (s.shared_with_group_id) gids[s.shared_with_group_id] = 1;
+  });
+  S.members.forEach(function(m){ if (gids[m.group_id]) add(m.invited_email); });
+  return out;
+}
 function openBringerPopup(ev, dish, onPick){
   var opts = peopleOptions().map(function(p){
     return '<button type="button" class="pop-option" data-pick-user="' + p.userId + '">' + esc(p.name) + (p.email ? ' <span style="color:var(--ink-soft);font-size:.85rem">' + esc(p.email) + '</span>' : '') + '</button>';
   }).join("");
+  var emailOpts = eventInviteeEmails(ev).map(function(email){
+    return '<button type="button" class="pop-option" data-pick-email="' + esc(email) + '">' + esc(email) + ' <span class="tag">invited</span></button>';
+  }).join("");
   openPopup("Who's bringing it?",
     (opts || '<p style="color:var(--ink-soft)">No one else is connected yet — type a name below.</p>') +
+    emailOpts +
     '<button type="button" class="pop-option" data-pick-none="1">Unassigned</button>' +
     '<div class="pop-sep"><form class="ready-add" id="popBringerForm" style="margin-top:2px"><input type="text" name="who" placeholder="…or type a name" aria-label="Bringer name"><button class="btn small" type="submit">Use this name</button></form></div>');
   document.querySelectorAll("[data-pick-user]").forEach(function(b){
@@ -1390,6 +1486,13 @@ function openBringerPopup(ev, dish, onPick){
       var p = profileById(b.getAttribute("data-pick-user"));
       closePopup();
       onPick({ bringerName: profileName(p), bringerUserId: p.id, bringerEmail: null });
+    });
+  });
+  document.querySelectorAll("[data-pick-email]").forEach(function(b){
+    b.addEventListener("click", function(){
+      var email = b.getAttribute("data-pick-email");
+      closePopup();
+      onPick({ bringerName: email, bringerUserId: null, bringerEmail: email });
     });
   });
   document.querySelectorAll("[data-pick-none]").forEach(function(b){
@@ -1536,8 +1639,8 @@ function renderDishEdit(){
         '<button type="button" class="mini-btn" id="dishEditLink">🔗 Recipe' + (r ? " · Change" : "") + '</button></div></div>' +
       '<div class="field"><label>Dietary tags</label><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">' +
         ((d.dietary_tags || []).map(function(t){ return '<span class="diet-tag">' + esc(t) + '</span>'; }).join("") || '<span style="color:var(--ink-soft)">None — the linked recipe&rsquo;s tags are used.</span>') +
-        '<button type="button" class="mini-btn" id="dishEditTagsBtn">Edit tags</button></div><div class="hint">Matched against everyone&rsquo;s allow and deny lists.</div></div>' +
-      '<div>' + dietIndicatorsHtml(dishTags(d), S.profile) + '</div>' +
+        '<button type="button" class="mini-btn" id="dishEditTagsBtn">Edit tags</button></div><div class="hint">Matched against everyone&rsquo;s prefer and avoid lists.</div></div>' +
+      '<div>' + eventDietIndicatorsHtml(dishTags(d), ev) + '</div>' +
       '<div style="display:flex;gap:8px;flex-wrap:wrap"><button type="submit" class="btn primary">Save changes</button><button type="button" class="btn" id="dishEditDone">Done — back to event</button></div>' +
     '</form>' +
     '<div id="dishDeleteArea" style="margin-top:18px;border-top:1px solid var(--line);padding-top:14px"><button type="button" class="btn danger" id="dishDeleteBtn">Remove item</button></div></div>';
@@ -1588,6 +1691,20 @@ function renderDishEdit(){
 
 /* ============ Groups & people ============ */
 function groupMembers(gid){ return S.members.filter(function(m){ return m.group_id === gid; }); }
+/* Event groups: like the preview, every event has a real group of its
+   own, badged "event group" in the Groups tab. The live groups table
+   has no event_id column, so the link rides in the group's description
+   as a trailing "event-group:<event uuid>" token; display code strips
+   it back out (publicGroupDesc) and the badge reads it (groupEventId). */
+function groupEventId(g){
+  var m = /event-group:([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/.exec((g && g.description) || "");
+  return m ? m[1] : null;
+}
+function publicGroupDesc(g){
+  var d = ((g && g.description) || "").replace(/\s*event-group:[0-9a-fA-F-]{36}\s*/g, " ").trim();
+  return d || null;
+}
+function eventGroupFor(evId){ return S.groups.find(function(g){ return groupEventId(g) === evId; }) || null; }
 function renderGroups(){
   $("groupList").innerHTML = S.groups.length ? S.groups.map(function(g){
     var ms = groupMembers(g.id);
@@ -1595,8 +1712,8 @@ function renderGroups(){
     var sharedRecipes = S.recipes.filter(function(r){ return r.owner_group_id === g.id; }).length +
       S.recipeShares.filter(function(s){ return s.shared_with_group_id === g.id; }).length;
     var sharedEvents = S.eventShares.filter(function(s){ return s.shared_with_group_id === g.id; }).length;
-    return '<button type="button" class="summary-card" data-group="' + g.id + '"><h3>' + esc(g.name) + '</h3>' +
-      (g.description ? '<p class="summary-meta">' + esc(g.description) + '</p>' : '') +
+    return '<button type="button" class="summary-card" data-group="' + g.id + '"><h3>' + esc(g.name) + (groupEventId(g) ? ' <span class="tag">event group</span>' : '') + '</h3>' +
+      (publicGroupDesc(g) ? '<p class="summary-meta">' + esc(publicGroupDesc(g)) + '</p>' : '') +
       '<p class="summary-meta">' + ms.length + (ms.length === 1 ? " member" : " members") + (names.length ? ": " + esc(names.join(", ")) : "") + '</p>' +
       '<p class="summary-meta">' + sharedRecipes + (sharedRecipes === 1 ? " recipe" : " recipes") + " · " + sharedEvents + (sharedEvents === 1 ? " event" : " events") + ' shared with this group</p></button>';
   }).join("") : '<div class="empty">No groups yet. Create one — for example, a “Family” group for you, Mel, and Nerd.</div>';
@@ -1642,9 +1759,11 @@ function renderGroupDetail(){
   var ownedRecipes = S.recipes.filter(function(r){ return r.owner_group_id === g.id; });
   var sharedRecipes = S.recipes.filter(function(r){ return r.owner_group_id !== g.id && S.recipeShares.some(function(s){ return s.recipe_id === r.id && s.shared_with_group_id === g.id; }); });
   var sharedEvents = S.events.filter(function(ev){ return S.eventShares.some(function(s){ return s.event_id === ev.id && s.shared_with_group_id === g.id; }); });
+  var evGroupEv = groupEventId(g) ? eventById(groupEventId(g)) : null;
   $("groupDetailBody").innerHTML =
-    '<div class="panel"><h2 class="serif" style="margin:0;font-size:1.8rem">' + esc(g.name) + '</h2>' +
-    (g.description ? '<p style="margin:6px 0 0">' + esc(g.description) + '</p>' : '') +
+    '<div class="panel"><h2 class="serif" style="margin:0;font-size:1.8rem">' + esc(g.name) + (groupEventId(g) ? ' <span class="tag">event group</span>' : '') + '</h2>' +
+    (publicGroupDesc(g) ? '<p style="margin:6px 0 0">' + esc(publicGroupDesc(g)) + '</p>' : '') +
+    (groupEventId(g) ? '<p style="margin:6px 0 0;color:var(--ink-soft);font-size:.92rem">Event group' + (evGroupEv ? ' for <a href="#" data-gevent="' + evGroupEv.id + '">' + esc(evGroupEv.title) + '</a>' : '') + ' — members can see the event and its menu.</p>' : '') +
     '<h3 class="serif" style="margin:22px 0 8px;font-size:1.2rem">Members</h3>' +
     '<div style="display:flex;gap:6px;flex-wrap:wrap">' + ms.map(function(m){
       var label = m.user_id ? profileName(profileById(m.user_id)) : m.invited_email + " (invited)";
@@ -1703,9 +1822,9 @@ function renderSettings(){
       '<div class="field"><label for="setName">Your name</label><input type="text" id="setName" value="' + esc(p.display_name || "") + '"><div class="hint">Shown on menus, messages, and shared recipes. Signed in as ' + esc(p.email || S.user.email || "") + '.</div></div>' +
       '<div><button class="btn primary small" type="submit">Save name</button></div></form>' +
     '<div class="sub-panel"><h3 class="serif" style="margin:0 0 4px;font-size:1.15rem">Dietary restrictions</h3>' +
-      '<p style="margin:0 0 10px;color:var(--ink-soft);font-size:.92rem">Only you can change these. On event menus, dishes are checked against your lists: a ! warns about your deny list, a ✓ marks your allow list.</p>' +
-      '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><span class="blk-lbl">Allow list:</span> ' + (allow || '<span style="color:var(--ink-soft)">nothing yet</span>') + '</div>' +
-      '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px"><span class="blk-lbl">Deny list:</span> ' + (deny || '<span style="color:var(--ink-soft)">nothing yet</span>') + '</div>' +
+      '<p style="margin:0 0 10px;color:var(--ink-soft);font-size:.92rem">Only you can change these. On event menus, dishes are checked against everyone&rsquo;s lists: a ! warns when a dish contains something on anyone&rsquo;s avoid list, a ✓ marks your prefer list.</p>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><span class="blk-lbl">Prefer list:</span> ' + (allow || '<span style="color:var(--ink-soft)">nothing yet</span>') + '</div>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px"><span class="blk-lbl">Avoid list:</span> ' + (deny || '<span style="color:var(--ink-soft)">nothing yet</span>') + '</div>' +
       '<div style="margin-top:12px"><button type="button" class="btn small primary" id="settingsDietEdit">Edit</button></div></div></div>';
   $("settingsForm").addEventListener("submit", function(e){
     e.preventDefault();
@@ -1925,7 +2044,12 @@ function downloadJsonFile(obj, filename){
 function exportBookJson(){
   var data = {
     format: "recipe-book", version: 1, exported_at: new Date().toISOString(),
-    groups: S.groups.map(function(g){ return { id: g.id, name: g.name, description: g.description || null }; }),
+    groups: S.groups.map(function(g){
+      var out = { id: g.id, name: g.name, description: publicGroupDesc(g) };
+      var evId = groupEventId(g);
+      if (evId) out.event_id = evId;
+      return out;
+    }),
     recipes: S.recipes.map(function(r){
       return {
         id: r.id, title: r.title, description: r.description || null,
@@ -1970,10 +2094,12 @@ function runImport(data){
     if (statusEl){ statusEl.hidden = false; statusEl.innerHTML = '<p style="margin:0;color:var(--ink-soft)">' + esc(msg) + '</p>'; }
     toast(msg);
   }
-  var counts = { groupsNew: 0, groupsReused: 0, recipesNew: 0, recipesReused: 0, eventsNew: 0, eventsReused: 0, dishesNew: 0, dishesSkipped: 0, shares: 0, extras: 0 };
+  var counts = { groupsNew: 0, groupsReused: 0, recipesNew: 0, recipesReused: 0, eventsNew: 0, eventsReused: 0, dishesNew: 0, dishesSkipped: 0, shares: 0, extras: 0, eventGroupsNew: 0, eventGroupsReused: 0 };
   var failures = [];
   var groupMap = {}, recipeMap = {}, eventMap = {};
+  var pendingEventGroups = [];
   var knownGroups = S.groups.slice(), knownRecipes = S.recipes.slice(), knownEvents = S.events.slice(), knownDishes = S.dishes.slice();
+  var knownEventShares = S.eventShares.slice();
   function findByName(list, key, val){
     var v = String(val || "").trim().toLowerCase();
     return list.find(function(x){ return String(x[key] || "").trim().toLowerCase() === v; }) || null;
@@ -1981,11 +2107,12 @@ function runImport(data){
   var chain = Promise.resolve();
   function step(fn){ chain = chain.then(fn); }
 
-  /* 1 — Groups (skip a preview export's per-event implicit groups;
-     the live book has no such thing — the event itself is shared). */
+  /* 1 — Groups. A group carrying an event_id is an event group (the
+     preview gives every event one); it's held back and created with
+     its event in step 3, once the event has a database id. */
   (Array.isArray(data.groups) ? data.groups : []).forEach(function(g){
     if (!g || !g.name) return;
-    if (g.event_id) return;
+    if (g.event_id){ pendingEventGroups.push({ fileId: g.id, name: g.name, description: g.description || null, fileEventId: g.event_id }); return; }
     step(function(){
       var existing = findByName(knownGroups, "name", g.name);
       if (existing){ groupMap[g.id] = existing.id; counts.groupsReused++; return null; }
@@ -2052,6 +2179,45 @@ function runImport(data){
     });
   });
 
+  /* Every imported event gets its event group, like the preview: a
+     real group (named after the event, or as the file names it),
+     badged "event group" in the Groups tab, with the event shared
+     with it. Re-imports find the group by its marker instead of
+     duplicating it; an unmarked group with the event's name is
+     adopted and stamped. Runs before the event's share jobs so a
+     file that shares the event with its own group resolves. */
+  function ensureEventGroup(ev, evId){
+    var pg = pendingEventGroups.find(function(p){ return p.fileEventId === ev.id; }) || null;
+    function link(group){
+      if (pg) groupMap[pg.fileId] = group.id;
+      var already = knownEventShares.some(function(s){ return s.event_id === evId && s.shared_with_group_id === group.id; });
+      if (already) return Promise.resolve();
+      return DB.events.addShare({ event_id: evId, shared_with_group_id: group.id, granted_by: S.user.id }).then(function(sres){
+        if (sres.error && !isDuplicateErr(sres.error)) failures.push("Sharing event “" + ev.title + "” with its event group: " + sres.error.message);
+        else if (!sres.error) knownEventShares.push({ event_id: evId, shared_with_group_id: group.id });
+      });
+    }
+    var marked = knownGroups.find(function(g){ return groupEventId(g) === evId; });
+    if (marked){ counts.eventGroupsReused++; return link(marked); }
+    var name = pg ? pg.name : ev.title;
+    var byName = findByName(knownGroups, "name", name);
+    if (byName && !groupEventId(byName)){
+      counts.eventGroupsReused++;
+      var desc = ((byName.description || "").trim() ? byName.description.trim() + " " : "") + "event-group:" + evId;
+      return DB.groups.update(byName.id, { description: desc }).then(function(ures){
+        if (!ures.error) byName.description = desc;
+        return link(byName);
+      });
+    }
+    var gdesc = (pg && pg.description ? pg.description + " " : "") + "event-group:" + evId;
+    return DB.groups.insert({ name: name, description: gdesc, created_by: S.user.id }).then(function(res){
+      if (res.error) throw res.error;
+      knownGroups.push(res.data);
+      counts.eventGroupsNew++;
+      return link(res.data);
+    }).catch(function(err){ failures.push("Event group for “" + ev.title + "”: " + (err && err.message ? err.message : err)); });
+  }
+
   /* 3 — Events, then their shares, dishes, messages, checklist. */
   (Array.isArray(data.events) ? data.events : []).forEach(function(ev){
     if (!ev || !ev.title) return;
@@ -2072,6 +2238,8 @@ function runImport(data){
         });
       }
       return evIdPromise.then(function(evId){
+        return ensureEventGroup(ev, evId).then(function(){ return evId; });
+      }).then(function(evId){
         var jobs = [];
         (Array.isArray(ev.shared_with_groups) ? ev.shared_with_groups : []).forEach(function(gid){
           var mapped = groupMap[gid];
@@ -2142,9 +2310,10 @@ function runImport(data){
     lines.push("Groups: " + counts.groupsNew + " added" + (counts.groupsReused ? ", " + counts.groupsReused + " already in your book (reused)" : "") + ".");
     lines.push("Recipes: " + counts.recipesNew + " added" + (counts.recipesReused ? ", " + counts.recipesReused + " already in your book (reused)" : "") + ".");
     lines.push("Events: " + counts.eventsNew + " added" + (counts.eventsReused ? ", " + counts.eventsReused + " already in your book (reused)" : "") + " · " + counts.dishesNew + " menu items added" + (counts.dishesSkipped ? ", " + counts.dishesSkipped + " already on the menu (skipped)" : "") + ".");
+    if (counts.eventGroupsNew || counts.eventGroupsReused) lines.push("Event groups: " + counts.eventGroupsNew + " created" + (counts.eventGroupsReused ? ", " + counts.eventGroupsReused + " already there" : "") + " — each event's group is in the Groups tab.");
     if (counts.shares) lines.push(counts.shares + (counts.shares === 1 ? " share" : " shares") + " set up from the file.");
     if (counts.extras) lines.push(counts.extras + (counts.extras === 1 ? " message / checklist item" : " messages / checklist items") + " added.");
-    if (!failures.length && (counts.groupsNew + counts.recipesNew + counts.eventsNew + counts.dishesNew) > 0){
+    if (!failures.length && (counts.groupsNew + counts.recipesNew + counts.eventsNew + counts.dishesNew + counts.eventGroupsNew) > 0){
       lines.push("Done — everything in the file is in your book now.");
     }
     if (statusEl){ statusEl.hidden = false; statusEl.innerHTML = importStatusHtml(lines, failures); }
