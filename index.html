@@ -1114,7 +1114,7 @@ function renderDetail(){
   if (r.cook_minutes) facts += '<div class="fact"><b>Cook</b>' + esc(r.cook_minutes) + ' min</div>';
   var photoHtml = S.photoUrls[r.id]
     ? '<figure><img src="' + esc(S.photoUrls[r.id]) + '" alt="Photo of ' + esc(r.title) + '"></figure>'
-    : '<figure><div class="ph" style="height:280px;background:var(--surface2);border-radius:var(--radius);display:flex;align-items:center;justify-content:center;font-size:4rem" aria-hidden="true">🍽️</div></figure>';
+    : '';
   var shares = S.recipeShares.filter(function(s){ return s.recipe_id === r.id; });
   var shareList = shares.map(function(s){
     var label = s.shared_with_email ? s.shared_with_email : (s.shared_with_group_id ? (groupById(s.shared_with_group_id) || {}).name || "A group" : profileName(profileById(s.shared_with_user_id)));
@@ -1123,7 +1123,7 @@ function renderDetail(){
   var myGroupOpts = myGroups().map(function(g){ return '<option value="' + g.id + '">' + esc(g.name) + ' (group)</option>'; }).join("");
   $("detailBody").innerHTML =
     '<div class="detail-hero"><div>' + photoHtml +
-      (editable ? '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center"><label class="mini-btn" style="cursor:pointer">📷 Change photo<input type="file" id="detailPhoto" accept="image/*" hidden></label>' +
+      (editable ? '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center"><label class="mini-btn" style="cursor:pointer">' + (S.photoUrls[r.id] ? '📷 Change photo' : '📷 Add photo') + '<input type="file" id="detailPhoto" accept="image/*" hidden></label>' +
       '<button type="button" class="btn small danger" id="detailDelete">Delete recipe</button></div>' : '') +
     '</div><div>' +
       '<h2>' + esc(r.title) + '</h2>' +
