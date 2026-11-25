@@ -844,8 +844,30 @@ $("popupClose").addEventListener("click", closePopup);
 $("popupOverlay").addEventListener("click", function(e){ if (e.target === $("popupOverlay")) closePopup(); });
 
 /* ============ View switching ============ */
+/* ============ Wake lock — recipe page only ============ */
+// While a recipe is open, keep the screen awake so it stays readable while
+// cooking. No toggle: the lock is held only on the recipe detail view and
+// released everywhere else (and whenever the tab is hidden).
+var wakeSentinel = null;
+function acquireWakeLock(){
+  if (!("wakeLock" in navigator) || wakeSentinel) return;
+  if (document.visibilityState !== "visible") return;
+  navigator.wakeLock.request("screen").then(function(s){
+    wakeSentinel = s;
+    s.addEventListener("release", function(){ wakeSentinel = null; });
+  }).catch(function(){ /* not allowed / unsupported state — stay quiet */ });
+}
+function releaseWakeLock(){
+  if (!wakeSentinel) return;
+  var s = wakeSentinel; wakeSentinel = null;
+  try { var p = s.release(); if (p && p.catch) p.catch(function(){}); } catch (e) {}
+}
+document.addEventListener("visibilitychange", function(){
+  if (document.visibilityState === "visible" && S.view === "detail") acquireWakeLock();
+});
 function show(view){
   S.view = view;
+  if (view === "detail") acquireWakeLock(); else releaseWakeLock();
   document.querySelectorAll("nav.tabs button").forEach(function(b){ b.setAttribute("aria-selected", b.getAttribute("data-view") === view ? "true" : "false"); });
   document.querySelectorAll(".view").forEach(function(v){ v.classList.remove("active"); });
   var el = $("view-" + view); if (el) el.classList.add("active");
