@@ -821,7 +821,15 @@ function fmtNum(v){
 function scaleQty(q, mult){
   if (!mult || mult === 1) return q;
   var p = parseQty(q); if (!p) return q;
-  return fmtNum(p.value * mult) + (p.rest ? " " + p.rest : "");
+  var rest = p.rest;
+  // Also scale a weight/amount inside parentheses, e.g. "½ cup (3½ oz)"
+  // doubles to "1 cup (7 oz)". Non-numeric parentheticals are untouched.
+  rest = rest.replace(/\(([^)]*)\)/g, function(match, inner){
+    var ip = parseQty(inner);
+    if (!ip) return match;
+    return "(" + fmtNum(ip.value * mult) + (ip.rest ? " " + ip.rest : "") + ")";
+  });
+  return fmtNum(p.value * mult) + (rest ? " " + rest : "");
 }
 
 /* ============ Popup ============ */
