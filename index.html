@@ -133,6 +133,9 @@
   .dish-row{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;padding:10px 4px;border-bottom:1px solid var(--line);cursor:pointer}
   .dish-row:last-child{border-bottom:none}
   .dish-row .dish-name{font-weight:700}
+  .dish-row.dish-pending{opacity:.55}
+  .check-pending{opacity:.55}
+  .msg-pending{opacity:.55}
   .dish-tools{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
   .diet-warn{display:inline-flex;align-items:center;gap:6px;background:#fdecea;border:1px solid #e8a090;color:#7a1f12;border-radius:999px;padding:2px 10px 2px 3px;font-size:.78rem;font-weight:700;line-height:1.3}
   @media (prefers-color-scheme: dark){ .diet-warn{background:#4a2018;border-color:#8a4a3a;color:#f3c4b8} }
@@ -713,6 +716,11 @@ function recipeById(id){ return S.recipes.find(function(r){ return r.id === id; 
 function eventById(id){ return S.events.find(function(e){ return e.id === id; }) || null; }
 function groupById(id){ return S.groups.find(function(g){ return g.id === id; }) || null; }
 function profileById(id){ return S.profiles.find(function(p){ return p.id === id; }) || null; }
+function profileByEmail(email){
+  if (!email) return null;
+  var e = String(email).trim().toLowerCase();
+  return S.profiles.find(function(p){ return p.email && String(p.email).toLowerCase() === e; }) || null;
+}
 /* Little robot mark for agent accounts. */
 function robotIcon(){ return '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex:none"><rect x="4" y="8" width="16" height="12" rx="2"/><path d="M12 8V4"/><circle cx="12" cy="3" r="1"/><circle cx="9" cy="13" r="1" fill="currentColor"/><circle cx="15" cy="13" r="1" fill="currentColor"/><path d="M9 17h6"/></svg>'; }
 function profileName(p){ return p ? (p.display_name || p.email || "Someone") : "Someone"; }
@@ -1480,6 +1488,10 @@ function openDietaryPopup(profile, onSave){
 function eventDishes(evId){ return S.dishes.filter(function(d){ return d.event_id === evId; }); }
 function bringerLabel(d){
   if (d.brought_by_user_id){ var p = profileById(d.brought_by_user_id); if (p) return profileName(p); }
+  /* Assigned by email before the person signed up — show their name
+     now that they have a profile, not the email address. */
+  var p = profileByEmail(d.brought_by_email) || profileByEmail(d.brought_by);
+  if (p) return profileName(p);
   return d.brought_by || d.brought_by_email || "Unassigned";
 }
 function renderEvents(){
@@ -1525,7 +1537,7 @@ function dishRowHtml(ev, d){
   var r = d.recipe_id ? recipeById(d.recipe_id) : null;
   var tags = dishTags(d);
   var mult = d.multiplier && +d.multiplier !== 1 ? ' <span class="tag">' + esc(d.multiplier) + '×</span>' : "";
-  return '<div class="dish-row" data-dishrow="' + d.id + '" role="button" tabindex="0" aria-label="Edit ' + esc(d.item_name) + '">' +
+  return '<div class="dish-row' + (String(d.id).indexOf("pending-") === 0 ? " dish-pending" : "") + '" data-dishrow="' + d.id + '" role="button" tabindex="0" aria-label="Edit ' + esc(d.item_name) + '">' +
     '<span class="dish-name">' + esc(d.item_name) + mult + '</span>' +
     '<span class="dish-tools">' +
       '<button type="button" class="mini-btn" data-bringer="' + d.id + '">' + esc(bringerLabel(d)) + '</button>' +
@@ -1577,13 +1589,13 @@ function renderEventDetail(){
     '<div class="ready"><h4>My readiness checklist</h4>' +
       '<p style="color:var(--ink-soft);font-size:.9rem;margin:0 0 6px">Private to you — your own notes for this event.</p>' +
       '<ul class="ready-custom">' + myItems.map(function(c){
-        return '<li><label><input type="checkbox" data-check="' + c.id + '"' + (c.checked ? " checked" : "") + '><span class="' + (c.checked ? "done" : "") + '">' + esc(c.item_text) + '</span></label><button type="button" class="msg-del" data-checkdel="' + c.id + '" aria-label="Remove checklist item">×</button></li>';
+        return '<li' + (String(c.id).indexOf("pending-") === 0 ? ' class="check-pending"' : '') + '><label><input type="checkbox" data-check="' + c.id + '"' + (c.checked ? " checked" : "") + '><span class="' + (c.checked ? "done" : "") + '">' + esc(c.item_text) + '</span></label><button type="button" class="msg-del" data-checkdel="' + c.id + '" aria-label="Remove checklist item">×</button></li>';
       }).join("") + '</ul>' +
       '<form class="ready-add" id="checkForm"><input type="text" id="checkText" placeholder="Add a checklist item…" aria-label="New checklist item"><button class="btn small" type="submit">Add</button></form>' +
     '</div>' +
     '<div class="board"><h4>Message board</h4>' +
       (msgs.length ? msgs.map(function(m){
-        return '<div class="msg"><div class="msg-head"><strong>' + esc(m.author_name || profileName(profileById(m.author_id))) + '</strong> · ' + esc(fmtDateTime(m.created_at)) +
+        return '<div class="msg' + (String(m.id).indexOf("pending-") === 0 ? " msg-pending" : "") + '" data-msgid="' + m.id + '"><div class="msg-head"><strong>' + esc(m.author_name || profileName(profileById(m.author_id))) + '</strong> · ' + esc(fmtDateTime(m.created_at)) +
           ((m.author_id === S.user.id || isOwner) ? ' <button type="button" class="msg-del" data-msgdel="' + m.id + '" aria-label="Delete message">×</button>' : '') +
           '</div><p>' + esc(m.body) + '</p></div>';
       }).join("") : '<p style="color:var(--ink-soft)">No messages yet.</p>') +
@@ -1680,6 +1692,7 @@ function wireEventDetail(ev, isOwner){
   document.querySelectorAll("[data-dishrow]").forEach(function(row){
     function go(e){
       if (e.target.closest("[data-bringer],[data-link]")) return;
+      if (row.classList.contains("dish-pending")) return;
       S.eventReturnScrollY = window.scrollY || document.documentElement.scrollTop || 0;
       S.dishEditEventId = ev.id; S.dishEditDishId = row.getAttribute("data-dishrow");
       renderDishEdit(); show("dish-edit");
@@ -1691,6 +1704,7 @@ function wireEventDetail(ev, isOwner){
     b.addEventListener("click", function(e){
       e.stopPropagation();
       var d = S.dishes.find(function(x){ return x.id === b.getAttribute("data-bringer"); });
+      if (!d || String(d.id).indexOf("pending-") === 0) return;
       openBringerPopup(ev, d, function(sel){
         DB.events.updateDish(d.id, { brought_by: sel.bringerName || null, brought_by_user_id: sel.bringerUserId, brought_by_email: sel.bringerEmail })
           .then(function(res){ if (res.error) throw res.error; return refresh(); }).catch(fail);
@@ -1701,6 +1715,7 @@ function wireEventDetail(ev, isOwner){
     b.addEventListener("click", function(e){
       e.stopPropagation();
       var d = S.dishes.find(function(x){ return x.id === b.getAttribute("data-link"); });
+      if (!d || String(d.id).indexOf("pending-") === 0) return;
       openLinkPopup(ev, d, function(rid){
         var patch = { recipe_id: rid };
         if (rid){ var r = recipeById(rid); if (r && (!d.item_name || d.item_name === "New item")) patch.item_name = r.title; }
@@ -1711,39 +1726,130 @@ function wireEventDetail(ev, isOwner){
   $("dishForm").addEventListener("submit", function(e){
     e.preventDefault();
     var name = $("ndName").value.trim(); if (!name) return;
-    var row = { event_id: ev.id, item_name: name, recipe_id: newDishState.recipeId, brought_by: newDishState.bringerName || null, brought_by_user_id: newDishState.bringerUserId, brought_by_email: newDishState.bringerEmail, multiplier: 1, notes: packNotes("Other", ""), dietary_tags: [] };
-    DB.events.addDish(row).then(function(res){
+    var tempId = "pending-" + Date.now().toString(36) + "-" + Math.floor(Math.random() * 1e6);
+    var row = { id: tempId, event_id: ev.id, item_name: name, recipe_id: newDishState.recipeId, brought_by: newDishState.bringerName || null, brought_by_user_id: newDishState.bringerUserId, brought_by_email: newDishState.bringerEmail, multiplier: 1, notes: packNotes("Other", ""), dietary_tags: [] };
+    /* Show it right away and hand focus back to the box — the server
+       insert runs in the background, so typing the next item never waits. */
+    S.dishes.push(row);
+    newDishState = { bringerName: "", bringerUserId: null, bringerEmail: null, recipeId: null };
+    renderEventDetail();
+    var box = $("ndName"); if (box) box.focus();
+    var serverRow = { event_id: ev.id, item_name: name, recipe_id: row.recipe_id, brought_by: row.brought_by, brought_by_user_id: row.brought_by_user_id, brought_by_email: row.brought_by_email, multiplier: 1, notes: row.notes, dietary_tags: [] };
+    DB.events.addDish(serverRow).then(function(res){
       if (res.error) throw res.error;
-      newDishState = { bringerName: "", bringerUserId: null, bringerEmail: null, recipeId: null };
-      toast("Item added."); return refresh();
-    }).catch(fail);
+      var real = res.data;
+      /* Swap the placeholder for the real row, in place — no full re-render,
+         so the add box keeps its text and focus. */
+      var i = S.dishes.findIndex(function(x){ return x.id === tempId; });
+      if (i >= 0) S.dishes[i] = real;
+      var rowEl = document.querySelector('[data-dishrow="' + tempId + '"]');
+      if (rowEl){
+        rowEl.setAttribute("data-dishrow", real.id);
+        rowEl.classList.remove("dish-pending");
+        rowEl.setAttribute("aria-label", "Edit " + real.item_name);
+        rowEl.querySelectorAll("[data-bringer]").forEach(function(b){ b.setAttribute("data-bringer", real.id); });
+        rowEl.querySelectorAll("[data-link]").forEach(function(b){ b.setAttribute("data-link", real.id); });
+      }
+    }).catch(function(err){
+      /* The item never landed — pull the placeholder back out without
+         touching the add box or anything typed since. */
+      var i = S.dishes.findIndex(function(x){ return x.id === tempId; });
+      if (i >= 0) S.dishes.splice(i, 1);
+      var rowEl = document.querySelector('[data-dishrow="' + tempId + '"]');
+      if (rowEl) rowEl.remove();
+      fail(err);
+    });
   });
   $("checkForm").addEventListener("submit", function(e){
     e.preventDefault();
     var v = $("checkText").value.trim(); if (!v) return;
-    DB.events.addChecklist({ event_id: ev.id, owner_id: S.user.id, item_text: v })
-      .then(function(res){ if (res.error) throw res.error; return refresh(); }).catch(fail);
+    var tempId = "pending-" + Date.now().toString(36) + "-" + Math.floor(Math.random() * 1e6);
+    var row = { id: tempId, event_id: ev.id, owner_id: S.user.id, item_text: v, checked: false };
+    /* Same fast add as menu items: show it now, save in the background. */
+    S.checklist.push(row);
+    renderEventDetail();
+    var box = $("checkText"); if (box) box.focus();
+    DB.events.addChecklist({ event_id: ev.id, owner_id: S.user.id, item_text: v }).then(function(res){
+      if (res.error) throw res.error;
+      var real = res.data;
+      var i = S.checklist.findIndex(function(x){ return x.id === tempId; });
+      if (i >= 0) S.checklist[i] = real;
+      var cb = document.querySelector('[data-check="' + tempId + '"]');
+      if (cb){
+        cb.setAttribute("data-check", real.id);
+        var li = cb.closest("li");
+        if (li){
+          li.classList.remove("check-pending");
+          var del = li.querySelector("[data-checkdel]");
+          if (del) del.setAttribute("data-checkdel", real.id);
+        }
+      }
+    }).catch(function(err){
+      var i = S.checklist.findIndex(function(x){ return x.id === tempId; });
+      if (i >= 0) S.checklist.splice(i, 1);
+      var cb = document.querySelector('[data-check="' + tempId + '"]');
+      if (cb && cb.closest("li")) cb.closest("li").remove();
+      fail(err);
+    });
   });
   document.querySelectorAll("[data-check]").forEach(function(cb){
     cb.addEventListener("change", function(){
-      DB.events.updateChecklist(cb.getAttribute("data-check"), { checked: cb.checked })
+      var id = cb.getAttribute("data-check");
+      if (String(id).indexOf("pending-") === 0){ cb.checked = !cb.checked; return; }
+      DB.events.updateChecklist(id, { checked: cb.checked })
         .then(function(res){ if (res.error) throw res.error; return refresh(); }).catch(fail);
     });
   });
   document.querySelectorAll("[data-checkdel]").forEach(function(b){
     b.addEventListener("click", function(){
-      DB.events.removeChecklist(b.getAttribute("data-checkdel")).then(function(res){ if (res.error) throw res.error; return refresh(); }).catch(fail);
+      var id = b.getAttribute("data-checkdel");
+      if (String(id).indexOf("pending-") === 0) return;
+      DB.events.removeChecklist(id).then(function(res){ if (res.error) throw res.error; return refresh(); }).catch(fail);
     });
   });
   $("msgForm").addEventListener("submit", function(e){
     e.preventDefault();
     var v = $("msgText").value.trim(); if (!v) return;
-    DB.events.addMessage({ event_id: ev.id, author_id: S.user.id, author_name: profileName(S.profile), body: v })
-      .then(function(res){ if (res.error) throw res.error; return refresh(); }).catch(fail);
+    var tempId = "pending-" + Date.now().toString(36) + "-" + Math.floor(Math.random() * 1e6);
+    var row = { id: tempId, event_id: ev.id, author_id: S.user.id, author_name: profileName(S.profile), body: v, created_at: new Date().toISOString() };
+    /* Same fast add as menu items: show it now, save in the background. */
+    S.messages.push(row);
+    renderEventDetail();
+    var box = $("msgText"); if (box) box.focus();
+    DB.events.addMessage({ event_id: ev.id, author_id: S.user.id, author_name: profileName(S.profile), body: v }).then(function(res){
+      if (res.error) throw res.error;
+      var real = res.data;
+      var i = S.messages.findIndex(function(x){ return x.id === tempId; });
+      if (i >= 0) S.messages[i] = real;
+      var div = document.querySelector('[data-msgid="' + tempId + '"]');
+      if (div){
+        div.setAttribute("data-msgid", real.id);
+        div.classList.remove("msg-pending");
+        var del = div.querySelector("[data-msgdel]");
+        if (del) del.setAttribute("data-msgdel", real.id);
+      }
+    }).catch(function(err){
+      var i = S.messages.findIndex(function(x){ return x.id === tempId; });
+      if (i >= 0) S.messages.splice(i, 1);
+      var div = document.querySelector('[data-msgid="' + tempId + '"]');
+      if (div) div.remove();
+      fail(err);
+    });
+  });
+  /* Enter posts the message, Shift+Enter is a newline. */
+  $("msgText").addEventListener("keydown", function(e){
+    if (e.key === "Enter" && !e.shiftKey){
+      e.preventDefault();
+      var f = $("msgForm");
+      if (f.requestSubmit) f.requestSubmit();
+      else f.dispatchEvent(new Event("submit", { cancelable: true }));
+    }
   });
   document.querySelectorAll("[data-msgdel]").forEach(function(b){
     b.addEventListener("click", function(){
-      DB.events.removeMessage(b.getAttribute("data-msgdel")).then(function(res){ if (res.error) throw res.error; return refresh(); }).catch(fail);
+      var id = b.getAttribute("data-msgdel");
+      if (String(id).indexOf("pending-") === 0) return;
+      DB.events.removeMessage(id).then(function(res){ if (res.error) throw res.error; return refresh(); }).catch(fail);
     });
   });
   var mf = $("evMemberForm");
