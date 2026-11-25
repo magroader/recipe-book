@@ -1528,7 +1528,7 @@ function dishRowHtml(ev, d){
   return '<div class="dish-row" data-dishrow="' + d.id + '" role="button" tabindex="0" aria-label="Edit ' + esc(d.item_name) + '">' +
     '<span class="dish-name">' + esc(d.item_name) + mult + '</span>' +
     '<span class="dish-tools">' +
-      '<button type="button" class="mini-btn" data-bringer="' + d.id + '">Bringing: ' + esc(bringerLabel(d)) + '</button>' +
+      '<button type="button" class="mini-btn" data-bringer="' + d.id + '">' + esc(bringerLabel(d)) + '</button>' +
       '<button type="button" class="mini-btn" data-link="' + d.id + '">🔗 ' + (r ? "Recipe" : "Recipe") + (r ? " · Change" : "") + '</button>' +
     '</span>' +
     '<span>' + eventDietIndicatorsHtml(tags, ev) + '</span>' +
@@ -1596,7 +1596,7 @@ var newDishState = { bringerName: "", bringerUserId: null, bringerEmail: null, r
 function renderNewDishPickers(ev){
   var bSlot = $("ndBringerSlot"), lSlot = $("ndLinkSlot");
   if (!bSlot || !lSlot) return;
-  bSlot.innerHTML = '<button type="button" class="mini-btn" id="ndBringerBtn">Bringing: ' + esc(newDishState.bringerName || "Unassigned") + '</button>';
+  bSlot.innerHTML = '<button type="button" class="mini-btn" id="ndBringerBtn">' + esc(newDishState.bringerName || "Unassigned") + '</button>';
   var r = newDishState.recipeId ? recipeById(newDishState.recipeId) : null;
   lSlot.innerHTML = '<button type="button" class="mini-btn" id="ndLinkBtn">🔗 Recipe' + (r ? " · " + esc(r.title) + " · Change" : "") + '</button>';
   $("ndBringerBtn").addEventListener("click", function(){ openBringerPopup(ev, null, function(sel){ newDishState = Object.assign(newDishState, sel); renderNewDishPickers(ev); }); });
@@ -1812,7 +1812,7 @@ function renderDishEdit(){
       '</div>' +
       '<div class="field"><label for="deNotes">Notes</label><input type="text" id="deNotes" value="' + esc(dishNotes(d)) + '" placeholder="e.g. No garlic, TBD"></div>' +
       '<div class="field"><label>Who&rsquo;s bringing it &amp; recipe</label><div style="display:flex;gap:8px;flex-wrap:wrap">' +
-        '<button type="button" class="mini-btn" id="dishEditBringer">Bringing: ' + esc(bringerLabel(d)) + '</button>' +
+        '<button type="button" class="mini-btn" id="dishEditBringer">' + esc(bringerLabel(d)) + '</button>' +
         '<button type="button" class="mini-btn" id="dishEditLink">🔗 Recipe' + (r ? " · Change" : "") + '</button></div></div>' +
       '<div class="field"><label>Dietary tags</label><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">' +
         ((d.dietary_tags || []).map(function(t){ return '<span class="diet-tag">' + esc(t) + '</span>'; }).join("") || '<span style="color:var(--ink-soft)">None — the linked recipe&rsquo;s tags are used.</span>') +
