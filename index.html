@@ -68,6 +68,7 @@
   .search-box{flex:1 1 260px;display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:0 12px}
   .search-box input{border:none;background:none;flex:1;color:var(--ink);outline:none;min-height:2.75rem}
   .tag-row{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0 20px}
+  .owner-row{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0 0}
   .chip{border:1px solid var(--line);background:var(--surface);color:var(--ink-soft);border-radius:999px;padding:6px 14px;font-weight:600;min-height:2.25rem}
   .chip[aria-pressed="true"]{background:var(--sage);border-color:var(--sage);color:#fff}
   @media (prefers-color-scheme: dark){ .chip[aria-pressed="true"]{color:#141a0d} }
@@ -273,6 +274,7 @@
         <input type="search" id="searchInput" placeholder="Search recipes, ingredients, tags…" aria-label="Search recipes">
       </div>
     </div>
+    <div class="owner-row" id="ownerRow" role="group" aria-label="Filter by ownership"></div>
     <div class="tag-row" id="tagRow" aria-label="Filter by tag"></div>
     <div class="grid" id="recipeGrid"></div>
     <div class="empty" id="noResults" hidden>No recipes match that search. Try a different word, or clear the tag filter.</div>
@@ -619,7 +621,7 @@ var S = {
   user: null, profile: null, profiles: [], recipes: [], recipeShares: [],
   groups: [], members: [], events: [], eventShares: [], dishes: [], messages: [],
   checklist: [], shopping: [], photoUrls: {},
-  view: "recipes", tag: "All", query: "", detailId: null, scale: 1,
+  view: "recipes", tag: "All", ownerFilter: "all", query: "", detailId: null, scale: 1,
   eventDetailId: null, groupDetailId: null, dishEditEventId: null, dishEditDishId: null,
   formDietary: [], uploadedFile: null
 };
@@ -1064,7 +1066,29 @@ function renderTags(){
     c.addEventListener("click", function(){ S.tag = c.getAttribute("data-tag"); renderRecipes(); });
   });
 }
+function renderOwnerFilter(){
+  var opts = [["all", "All"], ["mine", "Mine"], ["group", "Groups"], ["shared", "Shared with me"]];
+  $("ownerRow").innerHTML = opts.map(function(o){
+    return '<button type="button" class="chip" data-owner="' + o[0] + '" aria-pressed="' + (S.ownerFilter === o[0]) + '">' + o[1] + '</button>';
+  }).join("");
+  document.querySelectorAll("#ownerRow .chip").forEach(function(c){
+    c.addEventListener("click", function(){ S.ownerFilter = c.getAttribute("data-owner"); renderRecipes(); });
+  });
+}
+function ownerMatches(r){
+  if (S.ownerFilter === "mine") return r.owner_user_id === S.user.id;
+  if (S.ownerFilter === "group"){
+    var mine = myGroups().map(function(g){ return g.id; });
+    if (r.owner_group_id && mine.indexOf(r.owner_group_id) !== -1) return true;
+    return S.recipeShares.some(function(s){ return s.recipe_id === r.id && s.shared_with_group_id && mine.indexOf(s.shared_with_group_id) !== -1; });
+  }
+  if (S.ownerFilter === "shared"){
+    return S.recipeShares.some(function(s){ return s.recipe_id === r.id && (s.shared_with_user_id === S.user.id || (s.shared_with_email && S.user.email && s.shared_with_email.toLowerCase() === S.user.email.toLowerCase())); });
+  }
+  return true;
+}
 function recipeMatches(r){
+  if (!ownerMatches(r)) return false;
   if (S.tag !== "All" && !(r.tags || []).some(function(t){ return t.toLowerCase() === S.tag.toLowerCase(); })) return false;
   if (!S.query) return true;
   var q = S.query.toLowerCase();
@@ -1073,6 +1097,7 @@ function recipeMatches(r){
 }
 function inCart(id){ return S.shopping.some(function(i){ return i.recipe_id === id; }); }
 function renderRecipes(){
+  renderOwnerFilter();
   renderTags();
   var list = S.recipes.filter(recipeMatches);
   $("recipeGrid").innerHTML = list.map(function(r){
