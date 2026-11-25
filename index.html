@@ -636,6 +636,7 @@ var S = {
   checklist: [], shopping: [], photoUrls: {},
   view: "recipes", tag: "All", ownerFilter: "all", query: "", detailId: null, scale: 1,
   eventDetailId: null, groupDetailId: null, dishEditEventId: null, dishEditDishId: null,
+  eventReturnScrollY: 0,
   formDietary: [], uploadedFile: null
 };
 var COURSES = ["Appetizers", "Mains & sides", "Desserts", "Drinks", "Other"];
@@ -916,7 +917,7 @@ document.querySelectorAll("nav.tabs button").forEach(function(b){
 });
 $("backBtn").addEventListener("click", function(){ renderRecipes(); show("recipes"); });
 $("backToEventsBtn").addEventListener("click", function(){ renderEvents(); show("events"); });
-$("backToEventBtn").addEventListener("click", function(){ if (S.dishEditEventId) { S.eventDetailId = S.dishEditEventId; renderEventDetail(); show("event-detail"); } });
+$("backToEventBtn").addEventListener("click", function(){ if (S.dishEditEventId) backToEvent(S.dishEditEventId); });
 $("backToGroupsBtn").addEventListener("click", function(){ renderGroups(); show("groups"); });
 
 /* ============ Data loading ============ */
@@ -1679,6 +1680,7 @@ function wireEventDetail(ev, isOwner){
   document.querySelectorAll("[data-dishrow]").forEach(function(row){
     function go(e){
       if (e.target.closest("[data-bringer],[data-link]")) return;
+      S.eventReturnScrollY = window.scrollY || document.documentElement.scrollTop || 0;
       S.dishEditEventId = ev.id; S.dishEditDishId = row.getAttribute("data-dishrow");
       renderDishEdit(); show("dish-edit");
     }
@@ -1776,6 +1778,17 @@ function wireEventDetail(ev, isOwner){
 }
 
 /* ============ Dish edit page ============ */
+/* Return to the event page from the dish edit page, landing back at the
+   scroll position the user was at when they opened the item. show() always
+   scrolls to the top, so the restore runs after it, once layout has settled. */
+function backToEvent(evId){
+  S.eventDetailId = evId;
+  renderEventDetail();
+  show("event-detail");
+  var y = S.eventReturnScrollY || 0;
+  S.eventReturnScrollY = 0;
+  requestAnimationFrame(function(){ requestAnimationFrame(function(){ window.scrollTo(0, y); }); });
+}
 function renderDishEdit(){
   var ev = eventById(S.dishEditEventId);
   var d = S.dishes.find(function(x){ return x.id === S.dishEditDishId; });
@@ -1805,9 +1818,9 @@ function renderDishEdit(){
         ((d.dietary_tags || []).map(function(t){ return '<span class="diet-tag">' + esc(t) + '</span>'; }).join("") || '<span style="color:var(--ink-soft)">None — the linked recipe&rsquo;s tags are used.</span>') +
         '<button type="button" class="mini-btn" id="dishEditTagsBtn">Edit tags</button></div><div class="hint">Matched against everyone&rsquo;s prefer and avoid lists.</div></div>' +
       '<div>' + eventDietIndicatorsHtml(dishTags(d), ev) + '</div>' +
-      '<div style="display:flex;gap:8px;flex-wrap:wrap"><button type="submit" class="btn primary">Save changes</button><button type="button" class="btn" id="dishEditDone">Done — back to event</button></div>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap"><button type="submit" class="btn primary">Save</button><button type="button" class="btn" id="dishEditCancel">Cancel</button><button type="button" class="btn danger" id="dishEditRemove">Remove</button></div>' +
     '</form>' +
-    '<div id="dishDeleteArea" style="margin-top:18px;border-top:1px solid var(--line);padding-top:14px"><button type="button" class="btn danger" id="dishDeleteBtn">Remove item</button></div></div>';
+    '<div id="dishDeleteArea" style="margin-top:14px"></div></div>';
   if (r){
     $("dishEditOpenRecipe").addEventListener("click", function(){ openDetail(r.id); });
     $("dishEditCartBtn").addEventListener("click", function(){ toggleCart(r.id, mult); });
@@ -1836,18 +1849,18 @@ function renderDishEdit(){
       notes: packNotes($("deCourse").value, $("deNotes").value.trim())
     };
     if (!patch.item_name) return;
-    DB.events.updateDish(d.id, patch).then(function(res){ if (res.error) throw res.error; toast("Saved."); return refresh(); }).catch(fail);
+    DB.events.updateDish(d.id, patch).then(function(res){ if (res.error) throw res.error; toast("Saved."); return refresh(); }).then(function(){ backToEvent(ev.id); }).catch(fail);
   });
-  $("dishEditDone").addEventListener("click", function(){ S.eventDetailId = ev.id; renderEventDetail(); show("event-detail"); });
-  $("dishDeleteBtn").addEventListener("click", function(){
+  $("dishEditCancel").addEventListener("click", function(){ backToEvent(ev.id); });
+  $("dishEditRemove").addEventListener("click", function(){
     var area = $("dishDeleteArea");
     area.innerHTML = '<span style="font-weight:700">Remove “' + esc(d.item_name) + '”?</span> <button type="button" class="btn small danger" id="dishDeleteConfirm" style="margin-left:8px">Yes, remove it</button> <button type="button" class="btn small ghost" id="dishDeleteCancel">Keep it</button>';
-    $("dishDeleteCancel").addEventListener("click", renderDishEdit);
+    $("dishDeleteCancel").addEventListener("click", function(){ area.innerHTML = ""; });
     $("dishDeleteConfirm").addEventListener("click", function(){
       DB.events.removeDish(d.id).then(function(res){
         if (res.error) throw res.error;
         toast("Item removed.");
-        return refresh().then(function(){ S.eventDetailId = ev.id; renderEventDetail(); show("event-detail"); });
+        return refresh().then(function(){ backToEvent(ev.id); });
       }).catch(fail);
     });
   });
