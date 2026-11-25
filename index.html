@@ -1930,31 +1930,37 @@ function renderSettings(){
   $("settingsBody").innerHTML =
     '<div class="panel"><form class="stack" id="settingsForm" style="max-width:none">' +
       '<div class="field"><label for="setName">Your name</label><input type="text" id="setName" value="' + esc(p.display_name || "") + '"><div class="hint">Shown on menus, messages, and shared recipes. Signed in as ' + esc(p.email || S.user.email || "") + '.</div></div>' +
+      '<div><button class="btn primary small" type="submit">Save name</button></div></form>' +
+    '<div class="sub-panel"><h3 class="serif" style="margin:0 0 4px;font-size:1.15rem">Dietary restrictions</h3>' +
+      '<p style="margin:0 0 10px;color:var(--ink-soft);font-size:.92rem">Only you can change these. On event menus, dishes are checked against everyone&rsquo;s lists: a ! warns when a dish contains something on anyone&rsquo;s avoid list, a ✓ marks your prefer list.</p>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><span class="blk-lbl">Prefer list:</span> ' + (allow || '<span style="color:var(--ink-soft)">nothing yet</span>') + '</div>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px"><span class="blk-lbl">Avoid list:</span> ' + (deny || '<span style="color:var(--ink-soft)">nothing yet</span>') + '</div>' +
+      '<div style="margin-top:12px"><button type="button" class="btn small primary" id="settingsDietEdit">Edit</button></div></div>' +
+    '<details class="sub-panel"><summary class="serif" style="margin:0 0 4px;font-size:1.15rem;cursor:pointer">AI agent settings</summary>' +
       '<div class="field"><label for="setAgentMode">Agent status</label><select id="setAgentMode">' +
         '<option value="auto"' + (mode === 'auto' ? ' selected' : '') + '>Auto — decide from how this account is used</option>' +
         '<option value="agent"' + (mode === 'agent' ? ' selected' : '') + '>Agent</option>' +
         '<option value="not_agent"' + (mode === 'not_agent' ? ' selected' : '') + '>Not an agent</option>' +
       '</select><div class="hint">Agent accounts are never offered as someone who can bring a dish to an event — agents can read and share recipes, but they can&rsquo;t bake a pie. On Auto, this account counts as an agent once it changes recipes through the MCP server. Choose Not an agent if an agent signs in as you.</div></div>' +
-      '<div><button class="btn primary small" type="submit">Save name</button></div></form>' +
-    '<div class="sub-panel"><h3 class="serif" style="margin:0 0 4px;font-size:1.15rem">MCP access</h3>' +
+      '<div style="margin-bottom:12px"><button type="button" class="btn small primary" id="settingsSaveAgent">Save agent status</button></div>' +
+      '<h3 class="serif" style="margin:0 0 4px;font-size:1.15rem">MCP access</h3>' +
       '<p style="margin:0 0 10px;color:var(--ink-soft);font-size:.92rem">To connect an AI agent to this book, the agent needs your current sign-in token, sent as an <code>Authorization: Bearer</code> header to <code>https://dxuvfvvdggtfqfoddiuv.supabase.co/functions/v1/recipe-mcp</code>. It expires in about an hour — if the agent says it expired, come back here and show it again. Treat it like a password: anyone with it can act as you on this book until it expires.</p>' +
       '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button type="button" class="btn small" id="settingsShowToken">Show my MCP token</button><span id="settingsTokenHint" style="color:var(--ink-soft);font-size:.92rem"></span></div>' +
-      '<div id="settingsTokenBox" style="margin-top:10px" hidden><textarea id="settingsToken" readonly rows="4" style="width:100%;font-family:monospace;font-size:.75rem;word-break:break-all"></textarea><div style="margin-top:8px"><button type="button" class="btn small" id="settingsCopyToken">Copy token</button></div></div></div>' +
-    '<div class="sub-panel"><h3 class="serif" style="margin:0 0 4px;font-size:1.15rem">Dietary restrictions</h3>' +
-      '<p style="margin:0 0 10px;color:var(--ink-soft);font-size:.92rem">Only you can change these. On event menus, dishes are checked against everyone&rsquo;s lists: a ! warns when a dish contains something on anyone&rsquo;s avoid list, a ✓ marks your prefer list.</p>' +
-      '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><span class="blk-lbl">Prefer list:</span> ' + (allow || '<span style="color:var(--ink-soft)">nothing yet</span>') + '</div>' +
-      '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px"><span class="blk-lbl">Avoid list:</span> ' + (deny || '<span style="color:var(--ink-soft)">nothing yet</span>') + '</div>' +
-      '<div style="margin-top:12px"><button type="button" class="btn small primary" id="settingsDietEdit">Edit</button></div></div></div>';
+      '<div id="settingsTokenBox" style="margin-top:10px" hidden><textarea id="settingsToken" readonly rows="4" style="width:100%;font-family:monospace;font-size:.75rem;word-break:break-all"></textarea><div style="margin-top:8px"><button type="button" class="btn small" id="settingsCopyToken">Copy token</button></div></div>' +
+    '</details></div>';
   $("settingsForm").addEventListener("submit", function(e){
     e.preventDefault();
+    DB.profiles.update(S.user.id, { display_name: $("setName").value.trim() })
+      .then(function(res){ if (res.error) throw res.error; toast("Saved."); return refresh(); }).catch(fail);
+  });
+  $("settingsSaveAgent").addEventListener("click", function(){
     var newMode = $("setAgentMode").value;
     // Sync the effective is_agent flag with the chosen mode. Auto keeps the
-    // current flag when the mode was already Auto (so saving your name does
-    // not clear an auto-detected flag); switching into Auto restarts
-    // detection from scratch.
+    // current flag when the mode was already Auto (so saving does not clear
+    // an auto-detected flag); switching into Auto restarts detection.
     var syncAgent = newMode === 'agent' ? true : newMode === 'not_agent' ? false : (mode === 'auto' ? !!p.is_agent : false);
-    DB.profiles.update(S.user.id, { display_name: $("setName").value.trim(), agent_mode: newMode, is_agent: syncAgent })
-      .then(function(res){ if (res.error) throw res.error; toast("Saved."); return refresh(); }).catch(fail);
+    DB.profiles.update(S.user.id, { agent_mode: newMode, is_agent: syncAgent })
+      .then(function(res){ if (res.error) throw res.error; toast("Agent status saved."); return refresh(); }).catch(fail);
   });
   $("settingsDietEdit").addEventListener("click", function(){
     openDietaryPopup(p, function(allowList, denyList){
