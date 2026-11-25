@@ -1926,11 +1926,20 @@ function renderSettings(){
   if (!p){ $("settingsBody").innerHTML = '<div class="empty">Your profile is still being set up — try again in a moment.</div>'; return; }
   var allow = (p.dietary_allow_list || []).map(function(t){ return '<span class="diet-chip allow">' + esc(t) + '</span>'; }).join(" ");
   var deny = (p.dietary_deny_list || []).map(function(t){ return '<span class="diet-chip deny">' + esc(t) + '</span>'; }).join(" ");
+  var mode = p.agent_mode || 'auto';
   $("settingsBody").innerHTML =
     '<div class="panel"><form class="stack" id="settingsForm" style="max-width:none">' +
       '<div class="field"><label for="setName">Your name</label><input type="text" id="setName" value="' + esc(p.display_name || "") + '"><div class="hint">Shown on menus, messages, and shared recipes. Signed in as ' + esc(p.email || S.user.email || "") + '.</div></div>' +
-      '<label style="display:flex;gap:8px;align-items:flex-start;font-size:.92rem"><input type="checkbox" id="setAgent" ' + (p.is_agent ? 'checked' : '') + '><span><strong>This account is an AI agent.</strong> Agent accounts are never offered as someone who can bring a dish to an event — agents can read and share recipes, but they can&rsquo;t bake a pie.</span></label>' +
+      '<div class="field"><label for="setAgentMode">Agent status</label><select id="setAgentMode">' +
+        '<option value="auto"' + (mode === 'auto' ? ' selected' : '') + '>Auto — decide from how this account is used</option>' +
+        '<option value="agent"' + (mode === 'agent' ? ' selected' : '') + '>Agent</option>' +
+        '<option value="not_agent"' + (mode === 'not_agent' ? ' selected' : '') + '>Not an agent</option>' +
+      '</select><div class="hint">Agent accounts are never offered as someone who can bring a dish to an event — agents can read and share recipes, but they can&rsquo;t bake a pie. On Auto, this account counts as an agent once it changes recipes through the MCP server. Choose Not an agent if an agent signs in as you.</div></div>' +
       '<div><button class="btn primary small" type="submit">Save name</button></div></form>' +
+    '<div class="sub-panel"><h3 class="serif" style="margin:0 0 4px;font-size:1.15rem">MCP access</h3>' +
+      '<p style="margin:0 0 10px;color:var(--ink-soft);font-size:.92rem">To connect an AI agent to this book, the agent needs your current sign-in token, sent as an <code>Authorization: Bearer</code> header to <code>https://dxuvfvvdggtfqfoddiuv.supabase.co/functions/v1/recipe-mcp</code>. It expires in about an hour — if the agent says it expired, come back here and show it again. Treat it like a password: anyone with it can act as you on this book until it expires.</p>' +
+      '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button type="button" class="btn small" id="settingsShowToken">Show my MCP token</button><span id="settingsTokenHint" style="color:var(--ink-soft);font-size:.92rem"></span></div>' +
+      '<div id="settingsTokenBox" style="margin-top:10px" hidden><textarea id="settingsToken" readonly rows="4" style="width:100%;font-family:monospace;font-size:.75rem;word-break:break-all"></textarea><div style="margin-top:8px"><button type="button" class="btn small" id="settingsCopyToken">Copy token</button></div></div></div>' +
     '<div class="sub-panel"><h3 class="serif" style="margin:0 0 4px;font-size:1.15rem">Dietary restrictions</h3>' +
       '<p style="margin:0 0 10px;color:var(--ink-soft);font-size:.92rem">Only you can change these. On event menus, dishes are checked against everyone&rsquo;s lists: a ! warns when a dish contains something on anyone&rsquo;s avoid list, a ✓ marks your prefer list.</p>' +
       '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><span class="blk-lbl">Prefer list:</span> ' + (allow || '<span style="color:var(--ink-soft)">nothing yet</span>') + '</div>' +
@@ -1938,7 +1947,13 @@ function renderSettings(){
       '<div style="margin-top:12px"><button type="button" class="btn small primary" id="settingsDietEdit">Edit</button></div></div></div>';
   $("settingsForm").addEventListener("submit", function(e){
     e.preventDefault();
-    DB.profiles.update(S.user.id, { display_name: $("setName").value.trim(), is_agent: $("setAgent").checked })
+    var newMode = $("setAgentMode").value;
+    // Sync the effective is_agent flag with the chosen mode. Auto keeps the
+    // current flag when the mode was already Auto (so saving your name does
+    // not clear an auto-detected flag); switching into Auto restarts
+    // detection from scratch.
+    var syncAgent = newMode === 'agent' ? true : newMode === 'not_agent' ? false : (mode === 'auto' ? !!p.is_agent : false);
+    DB.profiles.update(S.user.id, { display_name: $("setName").value.trim(), agent_mode: newMode, is_agent: syncAgent })
       .then(function(res){ if (res.error) throw res.error; toast("Saved."); return refresh(); }).catch(fail);
   });
   $("settingsDietEdit").addEventListener("click", function(){
@@ -1946,6 +1961,21 @@ function renderSettings(){
       DB.profiles.update(S.user.id, { dietary_allow_list: allowList, dietary_deny_list: denyList })
         .then(function(res){ if (res.error) throw res.error; toast("Your dietary restrictions are saved."); return refresh(); }).catch(fail);
     });
+  });
+  $("settingsShowToken").addEventListener("click", function(){
+    DB.auth.getSession().then(function(res){
+      var tok = res && res.data && res.data.session ? res.data.session.access_token : null;
+      if (!tok){ $("settingsTokenHint").textContent = "No active session — sign out and back in, then try again."; return; }
+      $("settingsToken").value = tok;
+      $("settingsTokenBox").hidden = false;
+      $("settingsTokenHint").textContent = "Expires in about an hour.";
+    }).catch(fail);
+  });
+  $("settingsCopyToken").addEventListener("click", function(){
+    var el = $("settingsToken");
+    el.select();
+    if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(el.value).then(function(){ toast("Token copied."); }).catch(function(){ document.execCommand("copy"); toast("Token copied."); }); }
+    else { document.execCommand("copy"); toast("Token copied."); }
   });
 }
 
