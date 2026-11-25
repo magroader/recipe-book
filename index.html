@@ -238,7 +238,7 @@
   </header>
 
   <div id="authGate">
-    <div class="signin" id="signinBox">
+    <div class="signin" id="signinBox" hidden>
       <h2>Welcome to the family recipe book</h2>
       <p>Sign in with Google to see your recipes, groups, and events. Anyone can sign up — you only see what you own or what&rsquo;s been shared with you.</p>
       <button class="google-btn" id="googleBtn" type="button">
@@ -248,7 +248,7 @@
       <p class="hint" id="authStatus" role="status" hidden style="margin:14px 0 0"></p>
       <div class="err" id="authErr" hidden></div>
     </div>
-    <div class="loading" id="loadingBox" hidden>
+    <div class="loading" id="loadingBox">
       <p id="loadingText" style="margin:0">Loading your recipe book…</p>
       <div id="loadingActions" hidden style="margin-top:16px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
         <button class="btn primary" id="loadingRetryBtn" type="button">Try again</button>
@@ -779,7 +779,23 @@ function show(view){
   document.querySelectorAll("nav.tabs button").forEach(function(b){ b.setAttribute("aria-selected", b.getAttribute("data-view") === view ? "true" : "false"); });
   document.querySelectorAll(".view").forEach(function(v){ v.classList.remove("active"); });
   var el = $("view-" + view); if (el) el.classList.add("active");
+  try { localStorage.setItem("rb.lastView", JSON.stringify({ view: view, detailId: S.detailId || null, eventDetailId: S.eventDetailId || null, groupDetailId: S.groupDetailId || null, dishEditEventId: S.dishEditEventId || null, dishEditDishId: S.dishEditDishId || null })); } catch (e) {}
   window.scrollTo(0, 0);
+}
+/* Restore the view the user was on before a reload (e.g. pull-to-refresh). */
+function restoreView(){
+  var saved = null;
+  try { saved = JSON.parse(localStorage.getItem("rb.lastView") || "null"); } catch (e) {}
+  if (!saved || !saved.view){ renderRecipes(); show("recipes"); return; }
+  if (saved.view === "detail" && saved.detailId && recipeById(saved.detailId)){ S.detailId = saved.detailId; S.scale = 1; renderDetail(); show("detail"); return; }
+  if (saved.view === "event-detail" && saved.eventDetailId && eventById(saved.eventDetailId)){ S.eventDetailId = saved.eventDetailId; renderEventDetail(); show("event-detail"); return; }
+  if (saved.view === "group-detail" && saved.groupDetailId && groupById(saved.groupDetailId)){ S.groupDetailId = saved.groupDetailId; renderGroupDetail(); show("group-detail"); return; }
+  if (saved.view === "dish-edit" && saved.dishEditEventId && saved.dishEditDishId && eventById(saved.dishEditEventId)){ S.dishEditEventId = saved.dishEditEventId; S.dishEditDishId = saved.dishEditDishId; renderDishEdit(); show("dish-edit"); return; }
+  if (saved.view === "cart"){ renderCart(); show("cart"); return; }
+  if (saved.view === "events"){ renderEvents(); show("events"); return; }
+  if (saved.view === "groups"){ renderGroups(); show("groups"); return; }
+  if (saved.view === "add"){ renderAddForm(); show("add"); return; }
+  renderRecipes(); show("recipes");
 }
 document.querySelectorAll("nav.tabs button").forEach(function(b){
   b.addEventListener("click", function(){
@@ -972,7 +988,7 @@ function onSession(session){
       $("userBar").hidden = false;
       document.body.classList.add("signed-in");
       $("userEmail").textContent = S.user.email || "";
-      renderRecipes(); updateCartCount(); show("recipes");
+      updateCartCount(); restoreView();
     }).catch(function(err){
       if (attempt !== bootAttempt) return;
       bootLoading = false;
@@ -1005,12 +1021,14 @@ ensureSb().then(function(ready){
     var el = $("authErr");
     el.textContent = "The sign-in library couldn't load, so your book can't open yet. Check your connection, then tap Sign in with Google — it retries the load and can take you to Google directly.";
     el.hidden = false;
+    $("loadingBox").hidden = true; $("signinBox").hidden = false;
     return;
   }
   withTimeout(DB.auth.getSession(), 12000, "Checking your sign-in took too long. If you just came back from Google, give it a moment — the book should still open on its own — or tap Sign in with Google again.").then(function(res){ onSession(res.data.session); }).catch(function(err){
     var el = $("authErr");
     el.textContent = "Couldn't check your sign-in: " + (err && err.message ? err.message : err);
     el.hidden = false;
+    $("loadingBox").hidden = true; $("signinBox").hidden = false;
   });
   DB.auth.onChange(function(event, session){
     /* Never run Supabase calls synchronously inside this callback.
@@ -1128,7 +1146,7 @@ function renderDetail(){
     '</div><div>' +
       '<h2>' + esc(r.title) + '</h2>' +
       (r.description ? '<p style="color:var(--ink-soft);margin:0">' + esc(r.description) + '</p>' : '') +
-      '<div class="tags" style="margin-top:10px">' + (r.tags || []).map(function(t){ return '<span class="tag">' + esc(t) + '</span>'; }).join("") + '</div>' +
+      '<div class="tags" style="margin-top:10px">' + (r.tags || []).map(function(t){ return '<span class="tag">' + esc(t) + '</span>'; }).join("") + (editable ? ' <button type="button" class="mini-btn" id="editRecipeTags">Edit tags</button>' : '') + '</div>' +
       '<div class="fact-row">' + facts + '<div class="fact"><b>From</b>' + esc(ownerLabel(r)) + '</div></div>' +
       banners +
       '<div class="scale-row"><span class="lbl">Make:</span>' +
@@ -1155,6 +1173,14 @@ function renderDetail(){
     openTagPopup("Dietary tags — " + r.title, (r.dietary_tags || []).slice(), function(tags){
       DB.recipes.update(r.id, { dietary_tags: tags }).then(function(res){ if (res.error) throw res.error; return refresh(); }).catch(fail);
     });
+  });
+  var editTagsBtn = $("editRecipeTags");
+  if (editTagsBtn) editTagsBtn.addEventListener("click", function(){
+    var presets = [];
+    S.recipes.forEach(function(x){ (x.tags || []).forEach(function(t){ t = normalizeTag(t); if (t && presets.indexOf(t) === -1) presets.push(t); }); });
+    openTagPopup("Tags — " + r.title, (r.tags || []).slice(), function(tags){
+      DB.recipes.update(r.id, { tags: tags }).then(function(res){ if (res.error) throw res.error; return refresh(); }).catch(fail);
+    }, presets);
   });
   var del = $("detailDelete");
   if (del) del.addEventListener("click", function(){
@@ -1244,14 +1270,15 @@ $("clearCheckedBtn").addEventListener("click", function(){
 });
 
 /* ============ Tag popup (dietary tags editor) ============ */
-function openTagPopup(title, selected, onSave){
+function openTagPopup(title, selected, onSave, presets){
+  var list = presets || DIET_PRESETS;
   var draft = selected.map(normalizeTag).filter(Boolean);
   function render(){
-    var checks = DIET_PRESETS.map(function(p){
+    var checks = list.map(function(p){
       var on = draft.indexOf(p) !== -1;
       return '<label><input type="checkbox" data-dtag="' + esc(p) + '"' + (on ? " checked" : "") + '>' + esc(p) + '</label>';
     }).join("");
-    var custom = draft.filter(function(t){ return DIET_PRESETS.indexOf(t) === -1; });
+    var custom = draft.filter(function(t){ return list.indexOf(t) === -1; });
     openPopup(title,
       '<div class="pop-checks">' + checks + '</div>' +
       (custom.length ? '<p style="margin:10px 0 0">Your tags: ' + custom.map(function(t){ return '<span class="diet-tag">' + esc(t) + '</span>'; }).join("") + '</p>' : '') +
