@@ -1515,7 +1515,7 @@ $("eventForm").addEventListener("submit", function(e){
     return refresh().then(function(){ S.eventDetailId = res.data.id; renderEventDetail(); show("event-detail"); });
   }).catch(function(err){
     /* If the event itself failed, don't leave its empty group behind. */
-    if (gid) DB.groups.remove(gid).catch(function(){});
+    if (gid) DB.groups.remove(gid).then(function(){}, function(){});
     fail(err);
   });
 });
@@ -1769,7 +1769,7 @@ function wireEventDetail(ev, isOwner){
         if (res.error) throw res.error;
         /* The group exists only for this event — take it with the event,
            unless it owns recipes, in which case it stays a real group. */
-        if (gid && !groupOwnsRecipes) return DB.groups.remove(gid).catch(function(){});
+        if (gid && !groupOwnsRecipes) return DB.groups.remove(gid).then(function(){}, function(){});
       }).then(function(){ closePopup(); toast("Event deleted."); return refresh().then(function(){ show("events"); }); }).catch(fail);
     });
   });
