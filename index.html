@@ -1236,9 +1236,6 @@ function renderDetail(){
       '<div class="tags" style="margin-top:10px">' + (r.tags || []).map(function(t){ return '<span class="tag">' + esc(t) + '</span>'; }).join("") + (editable ? ' <button type="button" class="mini-btn" id="editRecipeTags">Edit tags</button>' : '') + '</div>' +
       '<div class="fact-row">' + facts + '<div class="fact"><b>From</b>' + esc(ownerLabel(r)) + '</div></div>' +
       banners +
-      '<div class="scale-row"><span class="lbl">Make:</span>' +
-        [1, 2, 3].map(function(n){ return '<button type="button" class="scale-btn" data-scale="' + n + '" aria-pressed="' + (S.scale === n) + '">' + n + '×</button>'; }).join("") + '</div>' +
-      '<div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn primary" id="detailCartBtn">' + (inCart(r.id) ? "✓ In shopping list — tap to remove" : "Add to shopping list") + '</button></div>' +
       (r.source_url ? '<div class="panel" style="margin-top:18px"><h3>Where this recipe came from</h3><p style="margin:0"><a href="' + esc(r.source_url) + '" target="_blank" rel="noopener">' + esc(r.source_url) + '</a></p>' + (r.created_by ? '<p style="margin:6px 0 0;color:var(--ink-soft);font-size:.9rem">Added by ' + esc(r.created_by) + '</p>' : '') + '</div>' : '') +
       '<div class="panel share-panel"><h3>Sharing</h3><p class="owner-line" style="font-size:.9rem;color:var(--ink-soft)">Owned by ' + esc(ownerLabel(r)) + '. ' + (shares.length ? 'Shared with: ' : 'Not shared with anyone yet.') + '</p>' +
         '<div style="display:flex;gap:6px;flex-wrap:wrap">' + shareList + '</div>' +
@@ -1249,7 +1246,11 @@ function renderDetail(){
         ((r.dietary_tags || []).map(function(t){ return '<span class="diet-tag">' + esc(t) + '</span>'; }).join("") || '<span style="color:var(--ink-soft)">None yet.</span>') +
         (editable ? ' <button type="button" class="mini-btn" id="recipeTagsEdit">Edit tags</button>' : '') + '</div></div>' +
     '</div></div>' +
-    '<div class="two-col"><div class="panel"><h3>Ingredients</h3><div id="detailIngs">' + ingredientsHtml(r, S.scale) + '</div></div>' +
+    '<div class="two-col"><div class="panel"><h3>Ingredients</h3>' +
+      '<div class="scale-row" style="margin-top:0"><span class="lbl">Make:</span>' +
+        [1, 2, 3].map(function(n){ return '<button type="button" class="scale-btn" data-scale="' + n + '" aria-pressed="' + (S.scale === n) + '">' + n + '×</button>'; }).join("") + '</div>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px"><button type="button" class="btn primary" id="detailCartBtn">' + (inCart(r.id) ? "✓ In shopping list — tap to remove" : "Add to shopping list") + '</button></div>' +
+      '<div id="detailIngs">' + ingredientsHtml(r, S.scale) + '</div></div>' +
     '<div class="panel"><h3>Steps</h3><ol class="steps">' + (r.steps || []).map(function(s){ return '<li>' + esc(s) + '</li>'; }).join("") + '</ol></div></div>';
   document.querySelectorAll("[data-scale]").forEach(function(b){
     b.addEventListener("click", function(){ S.scale = +b.getAttribute("data-scale"); renderDetail(); });
