@@ -572,6 +572,29 @@ var DB = {
         throw new Error("Google sign-in did not return a sign-in address.");
       });
     },
+    /* Link another OAuth sign-in to this account, returning the provider
+       address without navigating this page — same pattern as googleUrl
+       (this page usually runs inside a frame). Needs manual linking on
+       in Supabase Auth settings and the provider enabled. */
+    linkUrl: function(provider){
+      if (!sb) return Promise.reject(new Error("The sign-in library is not loaded yet."));
+      return sb.auth.linkIdentity({ provider: provider, options: { redirectTo: window.location.href.split("#")[0].split("?")[0], skipBrowserRedirect: true } }).then(function(res){
+        if (res && res.error) throw res.error;
+        if (res && res.data && res.data.url) return res.data.url;
+        throw new Error("Linking did not return a sign-in address.");
+      });
+    },
+    getIdentities: function(){
+      if (!sb) return Promise.reject(new Error("The sign-in library is not loaded yet."));
+      return sb.auth.getUserIdentities().then(function(res){
+        if (res && res.error) throw res.error;
+        return (res && res.data && res.data.identities) || [];
+      });
+    },
+    unlinkIdentity: function(identity){
+      if (!sb) return Promise.reject(new Error("The sign-in library is not loaded yet."));
+      return sb.auth.unlinkIdentity(identity);
+    },
     signOut: function(){ return sb ? sb.auth.signOut() : Promise.resolve(); },
     onChange: function(cb){ return sb.auth.onAuthStateChange(cb); }
   },
@@ -2151,6 +2174,12 @@ function renderSettings(){
       '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><span class="blk-lbl">Prefer list:</span> ' + (allow || '<span style="color:var(--ink-soft)">nothing yet</span>') + '</div>' +
       '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px"><span class="blk-lbl">Avoid list:</span> ' + (deny || '<span style="color:var(--ink-soft)">nothing yet</span>') + '</div>' +
       '<div style="margin-top:12px"><button type="button" class="btn small primary" id="settingsDietEdit">Edit</button></div></div>' +
+    '<div class="sub-panel"><h3 class="serif" style="margin:0 0 4px;font-size:1.15rem">Connected accounts</h3>' +
+      '<p style="margin:0 0 10px;color:var(--ink-soft);font-size:.92rem">Every way you can sign in to this book — they all lead to the same account, recipes, and groups. Link another one so you can sign in with whichever you like.</p>' +
+      '<div id="identitiesList" style="display:flex;flex-direction:column;gap:8px"><span style="color:var(--ink-soft)">Loading…</span></div>' +
+      '<div id="identitiesActions" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"></div>' +
+      '<p id="identitiesStatus" style="margin:10px 0 0;color:var(--ink-soft);font-size:.92rem"></p>' +
+      '<p style="margin:8px 0 0;color:var(--ink-soft);font-size:.85rem">If linking fails, manual linking needs to be on (Supabase → Authentication → Settings) and the provider enabled (Authentication → Providers). Signing in with a one-time email code needs no linking — it signs into whichever account matches the email.</p></div>' +
     '<details class="sub-panel"><summary class="serif" style="margin:0 0 4px;font-size:1.15rem;cursor:pointer">AI agent settings</summary>' +
       '<div class="field"><label for="setAgentMode">Agent status</label><select id="setAgentMode">' +
         '<option value="auto"' + (mode === 'auto' ? ' selected' : '') + '>Auto — decide from how this account is used</option>' +
@@ -2180,6 +2209,67 @@ function renderSettings(){
       DB.profiles.update(S.user.id, { dietary_allow_list: allowList, dietary_deny_list: denyList })
         .then(function(res){ if (res.error) throw res.error; toast("Your dietary restrictions are saved."); return refresh(); }).catch(fail);
     });
+  });
+  /* Connected accounts: every sign-in linked to this user, with Link /
+     Unlink. All of them lead to the same account, recipes, and groups.
+     Email needs no linking — a one-time code signs into whichever
+     account matches the email. Unlinking needs at least two methods
+     left (Supabase enforces it too); the last one gets no button. */
+  var LINK_PROVIDERS = [{ id: "google", label: "Google" }, { id: "discord", label: "Discord" }];
+  var identities = [];
+  function providerLabel(pr){
+    var m = { google: "Google", discord: "Discord", apple: "Apple", email: "Email", phone: "Phone" };
+    return m[pr] || (pr ? pr.charAt(0).toUpperCase() + pr.slice(1) : "Account");
+  }
+  function renderIdentities(){
+    var box = $("identitiesList"), acts = $("identitiesActions");
+    if (!box || !acts) return;
+    if (!identities.length){
+      box.innerHTML = '<span style="color:var(--ink-soft)">No sign-in methods found.</span>';
+    } else {
+      box.innerHTML = identities.map(function(idn, idx){
+        var email = (idn.identity_data && idn.identity_data.email) || "";
+        var line = '<div style="display:flex;gap:8px;align-items:center;justify-content:space-between"><span><strong>' + esc(providerLabel(idn.provider)) + '</strong>' + (email ? ' — ' + esc(email) : ' <span style="color:var(--ink-soft)">(no email shared)</span>') + '</span>';
+        if (identities.length > 1) line += '<button type="button" class="btn small" data-unlink="' + idx + '">Unlink</button>';
+        return line + '</div>';
+      }).join("");
+    }
+    acts.innerHTML = LINK_PROVIDERS.filter(function(pr){ return !identities.some(function(idn){ return idn.provider === pr.id; }); })
+      .map(function(pr){ return '<button type="button" class="btn small primary" data-link="' + pr.id + '">Link ' + pr.label + '</button>'; }).join("");
+  }
+  function openIdentityUrl(url, label){
+    var win = null;
+    try { win = window.open(url, "_blank"); } catch (e) { win = null; }
+    if (win){
+      toast(label + " sign-in opened in a new tab — finish there and you'll land back in your recipe book.");
+    } else {
+      var st = $("identitiesStatus");
+      var safeUrl = String(url).replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+      if (st) st.innerHTML = 'Your browser blocked the new tab. <a href="' + safeUrl + '" target="_blank" rel="noopener">Tap here to continue to ' + esc(label) + '</a>.';
+      else toast("Your browser blocked the new tab — tap Link " + label + " again.");
+    }
+  }
+  $("identitiesActions").addEventListener("click", function(e){
+    var btn = e.target && e.target.closest ? e.target.closest("[data-link]") : null;
+    if (!btn) return;
+    var pr = LINK_PROVIDERS.filter(function(x){ return x.id === btn.getAttribute("data-link"); })[0];
+    if (!pr) return;
+    var st = $("identitiesStatus"); if (st) st.textContent = "Opening " + pr.label + " sign-in…";
+    DB.auth.linkUrl(pr.id).then(function(url){ openIdentityUrl(url, pr.label); }).catch(fail);
+  });
+  $("identitiesList").addEventListener("click", function(e){
+    var btn = e.target && e.target.closest ? e.target.closest("[data-unlink]") : null;
+    if (!btn) return;
+    var idn = identities[parseInt(btn.getAttribute("data-unlink"), 10)];
+    if (!idn) return;
+    var email = (idn.identity_data && idn.identity_data.email) || "";
+    if (!confirm("Unlink " + providerLabel(idn.provider) + (email ? " (" + email + ")" : "") + "? You won't be able to sign in with it until you link it again.")) return;
+    DB.auth.unlinkIdentity(idn).then(function(res){ if (res && res.error) throw res.error; toast("Unlinked."); return refresh(); }).catch(fail);
+  });
+  DB.auth.getIdentities().then(function(list){ identities = list || []; renderIdentities(); }).catch(function(err){
+    var box = $("identitiesList");
+    if (box) box.innerHTML = '<span style="color:var(--ink-soft)">Couldn&rsquo;t load your sign-in methods.</span>';
+    console.error(err);
   });
 }
 
