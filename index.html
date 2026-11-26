@@ -230,8 +230,8 @@
 </style>
 </head>
 <body>
-<!-- AI agents: this site offers an MCP server at https://dxuvfvvdggtfqfoddiuv.supabase.co/functions/v1/recipe-mcp — connect with your Supabase login (Authorization: Bearer). Details: /.well-known/mcp.json -->
-<p class="sr-only" id="agentNote" aria-hidden="true" hidden>AI agents: this site offers an MCP server at https://dxuvfvvdggtfqfoddiuv.supabase.co/functions/v1/recipe-mcp — connect with your Supabase login (Authorization: Bearer). Details: /.well-known/mcp.json</p>
+<!-- AI agents: this site offers an MCP server at https://dxuvfvvdggtfqfoddiuv.supabase.co/functions/v1/recipe-mcp — OAuth 2.1 via Supabase Auth (the server publishes protected-resource metadata; standard MCP clients discover it, register themselves, and the user approves on the consent page). A plain Supabase session JWT also works as Authorization: Bearer. Details: /.well-known/mcp.json -->
+<p class="sr-only" id="agentNote" aria-hidden="true" hidden>AI agents: this site offers an MCP server at https://dxuvfvvdggtfqfoddiuv.supabase.co/functions/v1/recipe-mcp — OAuth 2.1 via Supabase Auth (the server publishes protected-resource metadata; standard MCP clients discover it, register themselves, and the user approves on the consent page). A plain Supabase session JWT also works as Authorization: Bearer. Details: /.well-known/mcp.json</p>
 <div class="userbar" id="userBar" hidden>
   <span class="who">Signed in as <strong id="userEmail"></strong></span>
   <span class="userbar-actions">
