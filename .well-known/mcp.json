@@ -4,8 +4,10 @@
   "url": "https://dxuvfvvdggtfqfoddiuv.supabase.co/functions/v1/recipe-mcp",
   "transport": "streamable-http",
   "auth": {
-    "type": "bearer",
-    "description": "Your Supabase JWT from signing into the recipe site with Google. Send as Authorization: Bearer <jwt> on every request."
+    "type": "oauth2",
+    "description": "OAuth 2.1 via Supabase Auth. The server publishes protected-resource metadata, so standard MCP clients discover the authorization server, register themselves (dynamic client registration), and run the authorization-code + PKCE flow; the user approves on the recipe site's consent page and the client renews with refresh tokens. A plain Supabase session JWT also still works as Authorization: Bearer <jwt>.",
+    "authorization_url": "https://dxuvfvvdggtfqfoddiuv.supabase.co/auth/v1/oauth/authorize",
+    "token_url": "https://dxuvfvvdggtfqfoddiuv.supabase.co/auth/v1/oauth/token"
   },
   "tools": [
     "search_recipes",
