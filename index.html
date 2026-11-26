@@ -382,7 +382,7 @@
   </section>
 
   <section class="view" id="view-add">
-    <div class="section-head"><h2>Add a recipe</h2></div>
+    <div class="section-head"><h2 id="addHeading">Add a recipe</h2></div>
     <form class="stack" id="addForm">
       <div class="field">
         <label>Where is it coming from?</label>
@@ -431,17 +431,17 @@ For the crust:
         <div id="fDietDisplay" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"></div>
         <div class="hint">Matched against everyone&rsquo;s prefer and avoid lists on event menus.</div>
       </div>
-      <div class="field">
+      <div class="field" id="fOwnerField">
         <label>Owner</label>
         <div id="fOwnerSlot"></div>
         <div class="hint">Pick a group to add the recipe straight to it. Ownership can be transferred later from the recipe&rsquo;s page.</div>
       </div>
-      <div class="field">
+      <div class="field" id="fShareField">
         <label>Share with (optional)</label>
         <div id="fShareSlot"></div>
         <div class="hint">Share by email, or with one of your groups.</div>
       </div>
-      <div><button class="btn primary" type="submit" id="addSubmit">Save recipe</button></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" type="submit" id="addSubmit">Save recipe</button><button class="btn" type="button" id="addCancel" hidden>Cancel</button></div>
     </form>
   </section>
   </div>
@@ -639,7 +639,7 @@ var S = {
   checklist: [], shopping: [], photoUrls: {},
   view: "recipes", tag: "All", ownerFilter: "all", query: "", detailId: null, scale: 1,
   eventDetailId: null, groupDetailId: null, dishEditEventId: null, dishEditDishId: null,
-  eventReturnScrollY: 0,
+  eventReturnScrollY: 0, editRecipeId: null,
   formDietary: [], uploadedFile: null
 };
 var COURSES = ["Appetizers", "Mains & sides", "Desserts", "Drinks", "Other"];
@@ -1282,6 +1282,7 @@ function renderDetail(){
   $("detailBody").innerHTML =
     '<div class="detail-hero"><div>' + photoHtml +
       (editable ? '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center"><label class="mini-btn" style="cursor:pointer">' + (S.photoUrls[r.id] ? '📷 Change photo' : '📷 Add photo') + '<input type="file" id="detailPhoto" accept="image/*" hidden></label>' +
+      '<button type="button" class="btn small" id="detailEdit">Edit recipe</button>' +
       '<button type="button" class="btn small danger" id="detailDelete">Delete recipe</button></div>' : '') +
     '</div><div>' +
       '<h2>' + esc(r.title) + '</h2>' +
@@ -1323,6 +1324,8 @@ function renderDetail(){
       DB.recipes.update(r.id, { tags: tags }).then(function(res){ if (res.error) throw res.error; return refresh(); }).catch(fail);
     }, presets);
   });
+  var editBtn = $("detailEdit");
+  if (editBtn) editBtn.addEventListener("click", function(){ openEditForm(r); });
   var del = $("detailDelete");
   if (del) del.addEventListener("click", function(){
     openPopup("Delete this recipe?", '<p>“' + esc(r.title) + '” will be removed for everyone it is shared with. This can&rsquo;t be undone.</p><div class="pop-actions"><button type="button" class="btn danger" id="popDelYes">Yes, delete it</button><button type="button" class="btn" id="popDelNo">Keep it</button></div>');
@@ -2224,7 +2227,58 @@ $("srcImg").addEventListener("change", function(){
     rd.readAsDataURL(f);
   }
 });
+/* Ingredients back to the add form's text format: a line ending in a colon
+   starts a group, then "quantity | name" lines (or just the name). Handles
+   both the site's {qty} shape and the MCP's {quantity, unit} shape. */
+function ingredientsText(r){
+  var lines = [], lastGroup = "";
+  (r.ingredients || []).forEach(function(ing){
+    var g = ing.group || "";
+    if (g && g !== lastGroup){ lines.push(g + ":"); lastGroup = g; }
+    var qty = ing.qty || ing.quantity || "";
+    var name = ing.name || "";
+    if (ing.unit) name = (name ? name + " " : "") + ing.unit;
+    lines.push(qty ? qty + "|" + name : name);
+  });
+  return lines.join("\n");
+}
+/* Open the Add form prefilled with a recipe's values, in edit mode.
+   Ownership and sharing stay on the recipe's page (Transfer / Share). */
+function openEditForm(r){
+  S.editRecipeId = r.id;
+  S.formDietary = (r.dietary_tags || []).slice();
+  S.uploadedFile = null;
+  $("srcImg").value = "";
+  var pv = $("srcImgPreview"); pv.style.display = "none"; pv.src = "";
+  $("addHeading").textContent = "Edit recipe";
+  $("addSubmit").textContent = "Save changes";
+  $("addCancel").hidden = false;
+  $("fOwnerField").hidden = true;
+  $("fShareField").hidden = true;
+  var st = r.source_type || "manual";
+  document.querySelectorAll('input[name="srcType"]').forEach(function(radio){ radio.checked = radio.value === st; });
+  $("srcUrl").value = r.source_url || "";
+  syncSourceFields();
+  $("fTitle").value = r.title || "";
+  $("fDesc").value = r.description || "";
+  $("fTags").value = (r.tags || []).join(", ");
+  $("fServings").value = r.servings || "";
+  $("fPrep").value = r.prep_minutes || "";
+  $("fCook").value = r.cook_minutes || "";
+  $("fIngs").value = ingredientsText(r);
+  $("fSteps").value = (r.steps || []).join("\n");
+  renderFDietDisplay();
+  show("add");
+}
 function renderAddForm(){
+  /* Fresh add: leaving edit mode clears the form back to blank. A plain
+     tab switch mid-add keeps the draft (editRecipeId is null then). */
+  if (S.editRecipeId){ S.editRecipeId = null; $("addForm").reset(); S.formDietary = []; S.uploadedFile = null; var pv = $("srcImgPreview"); pv.style.display = "none"; pv.src = ""; }
+  $("addHeading").textContent = "Add a recipe";
+  $("addSubmit").textContent = "Save recipe";
+  $("addCancel").hidden = true;
+  $("fOwnerField").hidden = false;
+  $("fShareField").hidden = false;
   syncSourceFields();
   var groups = myGroups();
   $("fOwnerSlot").innerHTML = '<select class="share-vis" id="fOwner"><option value="">Me</option>' +
@@ -2242,10 +2296,39 @@ function renderFDietDisplay(){
     openTagPopup("Dietary tags", S.formDietary.slice(), function(tags){ S.formDietary = tags; renderFDietDisplay(); });
   });
 }
+$("addCancel").addEventListener("click", function(){
+  var id = S.editRecipeId; S.editRecipeId = null;
+  if (id && recipeById(id)) openDetail(id); else { renderRecipes(); show("recipes"); }
+});
 $("addForm").addEventListener("submit", function(e){
   e.preventDefault();
   var btn = $("addSubmit"); btn.disabled = true; btn.textContent = "Saving…";
   var srcType = document.querySelector('input[name="srcType"]:checked').value;
+  if (S.editRecipeId){
+    var editId = S.editRecipeId;
+    var patch = {
+      title: $("fTitle").value.trim(),
+      description: $("fDesc").value.trim() || null,
+      tags: $("fTags").value.split(",").map(function(t){ return t.trim(); }).filter(Boolean),
+      servings: $("fServings").value ? +$("fServings").value : null,
+      prep_minutes: $("fPrep").value ? +$("fPrep").value : null,
+      cook_minutes: $("fCook").value ? +$("fCook").value : null,
+      ingredients: parseIngredients($("fIngs").value),
+      steps: $("fSteps").value.split("\n").map(function(s){ return s.trim(); }).filter(Boolean),
+      dietary_tags: S.formDietary.slice(),
+      source_url: srcType === "link" ? ($("srcUrl").value.trim() || null) : null,
+      source_type: srcType
+    };
+    var save = DB.recipes.update(editId, patch);
+    if (S.uploadedFile){
+      var path = editId + "/" + Date.now() + "-" + S.uploadedFile.name.replace(/[^\w.\-]+/g, "_");
+      save = save.then(function(res){ if (res.error) throw res.error; return DB.photos.upload(path, S.uploadedFile); })
+        .then(function(up){ if (up.error) throw up.error; return DB.recipes.update(editId, { photo_path: path }); });
+    }
+    save.then(function(res){ if (res && res.error) throw res.error; btn.disabled = false; btn.textContent = "Save changes"; S.editRecipeId = null; toast("Recipe saved."); return refresh().then(function(){ openDetail(editId); }); })
+      .catch(function(err){ btn.disabled = false; btn.textContent = "Save changes"; fail(err); });
+    return;
+  }
   var ownerVal = $("fOwner").value;
   var row = {
     owner_user_id: ownerVal ? null : S.user.id,
