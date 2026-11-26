@@ -936,6 +936,7 @@ function restoreView(){
   if (saved.view === "events"){ renderEvents(); show("events"); return; }
   if (saved.view === "groups"){ renderGroups(); show("groups"); return; }
   if (saved.view === "add"){ renderAddForm(); show("add"); return; }
+  if (saved.view === "settings"){ renderSettings(); show("settings"); return; }
   renderRecipes(); show("recipes");
 }
 document.querySelectorAll("nav.tabs button").forEach(function(b){
