@@ -1,11 +1,17 @@
 {
   "name": "recipe-book-mcp",
-  "description": "MCP server for the Recipe Book: search, read, add, and share recipes.",
+  "description": "MCP server for the Recipe Book: search, read, add, edit, and share recipes.",
   "url": "https://dxuvfvvdggtfqfoddiuv.supabase.co/functions/v1/recipe-mcp",
   "transport": "streamable-http",
   "auth": {
     "type": "bearer",
     "description": "Your Supabase JWT from signing into the recipe site with Google. Send as Authorization: Bearer <jwt> on every request."
   },
-  "tools": ["search_recipes", "get_recipe", "add_recipe", "share_recipe"]
+  "tools": [
+    "search_recipes",
+    "get_recipe",
+    "add_recipe",
+    "update_recipe",
+    "share_recipe"
+  ]
 }
