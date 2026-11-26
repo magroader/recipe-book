@@ -221,6 +221,9 @@
   .google-btn{display:inline-flex;align-items:center;gap:10px;background:#fff;color:#3c4043;border:1px solid #dadce0;border-radius:999px;padding:10px 22px;font-weight:700;min-height:3rem;box-shadow:0 1px 3px rgba(0,0,0,.15)}
   .google-btn[disabled]{opacity:.55;cursor:wait}
   @media (prefers-color-scheme: dark){ .google-btn{background:#fff;color:#3c4043} }
+  .discord-btn{display:inline-flex;align-items:center;gap:10px;background:#5865F2;color:#fff;border:1px solid #5865F2;border-radius:999px;padding:10px 22px;font-weight:700;min-height:3rem;box-shadow:0 1px 3px rgba(0,0,0,.15)}
+  .discord-btn[disabled]{opacity:.55;cursor:wait}
+  .google-btn.small,.discord-btn.small{min-height:2.5rem;padding:7px 16px;font-size:.95rem}
   .err{background:#fdecea;border:1px solid #e8a090;color:#7a1f12;border-radius:10px;padding:10px 14px;margin:14px 0;font-size:.93rem}
   @media (prefers-color-scheme: dark){ .err{background:#3d1f18;border-color:#8a4a3a;color:#f3c4b8} }
   .loading{text-align:center;color:var(--ink-soft);padding:48px 0}
@@ -2175,11 +2178,9 @@ function renderSettings(){
       '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px"><span class="blk-lbl">Avoid list:</span> ' + (deny || '<span style="color:var(--ink-soft)">nothing yet</span>') + '</div>' +
       '<div style="margin-top:12px"><button type="button" class="btn small primary" id="settingsDietEdit">Edit</button></div></div>' +
     '<div class="sub-panel"><h3 class="serif" style="margin:0 0 4px;font-size:1.15rem">Connected accounts</h3>' +
-      '<p style="margin:0 0 10px;color:var(--ink-soft);font-size:.92rem">Every way you can sign in to this book — they all lead to the same account, recipes, and groups. Link another one so you can sign in with whichever you like.</p>' +
       '<div id="identitiesList" style="display:flex;flex-direction:column;gap:8px"><span style="color:var(--ink-soft)">Loading…</span></div>' +
       '<div id="identitiesActions" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"></div>' +
-      '<p id="identitiesStatus" style="margin:10px 0 0;color:var(--ink-soft);font-size:.92rem"></p>' +
-      '<p style="margin:8px 0 0;color:var(--ink-soft);font-size:.85rem">If linking fails, manual linking needs to be on (Supabase → Authentication → Settings) and the provider enabled (Authentication → Providers). Signing in with a one-time email code needs no linking — it signs into whichever account matches the email.</p></div>' +
+      '<p id="identitiesStatus" style="margin:10px 0 0;color:var(--ink-soft);font-size:.92rem"></p></div>' +
     '<details class="sub-panel"><summary class="serif" style="margin:0 0 4px;font-size:1.15rem;cursor:pointer">AI agent settings</summary>' +
       '<div class="field"><label for="setAgentMode">Agent status</label><select id="setAgentMode">' +
         '<option value="auto"' + (mode === 'auto' ? ' selected' : '') + '>Auto — decide from how this account is used</option>' +
@@ -2234,8 +2235,12 @@ function renderSettings(){
         return line + '</div>';
       }).join("");
     }
+    var BRAND = {
+      google: { cls: "google-btn small", logo: '<svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 8 3l5.7-5.7C34.3 6.1 29.3 4 24 4 13 4 4 13 4 24s9 20 20 20 20-9 20-20c0-1.3-.1-2.6-.4-3.9z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 8 3l5.7-5.7C34.3 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C36.9 39.2 44 34 44 24c0-1.3-.1-2.6-.4-3.9z"/></svg>' },
+      discord: { cls: "discord-btn small", logo: '<svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path fill="#fff" d="M20.317 4.37a19.79 19.79 0 00-4.885 1.515.074.074 0 00-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 00-5.487 0 12.64 12.64 0 00-.617-1.25.077.077 0 00-.079-.037A19.736 19.736 0 003.677 4.37a.07.07 0 00-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 00.031.056 19.9 19.9 0 005.993 3.03.078.078 0 00.084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 00-.041-.106 13.107 13.107 0 01-1.872-.892.077.077 0 01-.007-.128c.126-.094.252-.192.372-.291a.074.074 0 01.078-.01c3.928 1.793 8.18 1.793 12.061 0a.074.074 0 01.079.009c.12.099.246.198.373.292a.077.077 0 01-.006.128 12.3 12.3 0 01-1.873.891.077.077 0 01-.041.107c.36.698.772 1.363 1.225 1.993a.076.076 0 00.084.029 19.84 19.84 0 006.002-3.03.077.077 0 00.032-.055c.5-5.177-.838-9.674-3.549-13.66a.06.06 0 00-.031-.03zM8.02 15.331c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.418 2.157-2.418 1.21 0 2.176 1.095 2.157 2.418 0 1.334-.956 2.419-2.157 2.419zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.418 2.157-2.418 1.21 0 2.176 1.095 2.157 2.418 0 1.334-.946 2.419-2.157 2.419z"/></svg>' }
+    };
     acts.innerHTML = LINK_PROVIDERS.filter(function(pr){ return !identities.some(function(idn){ return idn.provider === pr.id; }); })
-      .map(function(pr){ return '<button type="button" class="btn small primary" data-link="' + pr.id + '">Link ' + pr.label + '</button>'; }).join("");
+      .map(function(pr){ var b = BRAND[pr.id] || { cls: "btn small primary", logo: "" }; return '<button type="button" class="' + b.cls + '" data-link="' + pr.id + '">' + b.logo + 'Link ' + pr.label + '</button>'; }).join("");
   }
   function openIdentityUrl(url, label){
     var win = null;
