@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>OAuth callback — Recipe Book</title>
+<title>OAuth callback (test) — Recipe Book</title>
 <style>
   body { margin: 0; font-family: Georgia, 'Times New Roman', serif; background: #faf7f0; color: #2b2620; }
   .wrap { max-width: 560px; margin: 0 auto; padding: 48px 20px; }
@@ -21,7 +21,8 @@
 <div class="wrap">
   <h1>Recipe Book</h1>
   <div id="ok" class="card" hidden>
-    <p>Sign-in approved. Copy the code below and give it to Zoë (or whoever is testing the connection) — it expires in 10 minutes.</p>
+    <p><strong>Test page.</strong> This page is only used when testing an app's connection to the Recipe Book — it isn't part of the normal sign-in flow.</p>
+    <p>Copy the code below and give it to whoever is running the test — it expires in 10 minutes.</p>
     <p><strong>Authorization code</strong></p>
     <textarea id="code" readonly rows="4"></textarea>
     <div><button type="button" class="btn" id="copyBtn">Copy code</button></div>
@@ -32,7 +33,7 @@
     <p class="muted">Close this tab and try connecting again from the app.</p>
   </div>
   <div id="none" class="card" hidden>
-    <p>This page only shows anything right after an app sends you here to finish connecting. If you got here by mistake, you can close this tab.</p>
+    <p><strong>Test page.</strong> This page is only used when testing an app's connection to the Recipe Book. It only shows anything right after an app sends you here to finish connecting. If you got here by mistake, you can close this tab.</p>
   </div>
 </div>
 <script>
