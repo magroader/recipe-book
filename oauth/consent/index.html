@@ -84,7 +84,13 @@
   if (!authorizationId) { show("noAuthId"); return; }
 
   function consentUrl() {
-    return window.location.origin + window.location.pathname +
+    // Supabase's Site URL ends with a slash, so the Authorization URL
+    // arrives with a double slash (…/recipe-book//oauth/consent) and GitHub
+    // Pages serves it as-is. Normalize it here: the sign-in return address
+    // must match a Redirect URL in Supabase exactly, and that entry is the
+    // single-slash form.
+    var path = window.location.pathname.replace(/\/{2,}/g, "/");
+    return window.location.origin + path +
       "?authorization_id=" + encodeURIComponent(authorizationId);
   }
 
