@@ -2159,9 +2159,7 @@ function renderSettings(){
       '</select><div class="hint">Agent accounts are never offered as someone who can bring a dish to an event — agents can read and share recipes, but they can&rsquo;t bake a pie. On Auto, this account counts as an agent once it changes recipes through the MCP server. Choose Not an agent if an agent signs in as you.</div></div>' +
       '<div style="margin-bottom:12px"><button type="button" class="btn small primary" id="settingsSaveAgent">Save agent status</button></div>' +
       '<h3 class="serif" style="margin:0 0 4px;font-size:1.15rem">MCP access</h3>' +
-      '<p style="margin:0 0 10px;color:var(--ink-soft);font-size:.92rem">To connect an AI agent to this book, the agent needs your current sign-in token, sent as an <code>Authorization: Bearer</code> header to <code>https://dxuvfvvdggtfqfoddiuv.supabase.co/functions/v1/recipe-mcp</code>. It expires in about an hour — if the agent says it expired, come back here and show it again. Treat it like a password: anyone with it can act as you on this book until it expires.</p>' +
-      '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button type="button" class="btn small" id="settingsShowToken">Show my MCP token</button><span id="settingsTokenHint" style="color:var(--ink-soft);font-size:.92rem"></span></div>' +
-      '<div id="settingsTokenBox" style="margin-top:10px" hidden><textarea id="settingsToken" readonly rows="4" style="width:100%;font-family:monospace;font-size:.75rem;word-break:break-all"></textarea><div style="margin-top:8px"><button type="button" class="btn small" id="settingsCopyToken">Copy token</button></div></div>' +
+      '<p style="margin:0 0 10px;color:var(--ink-soft);font-size:.92rem">To connect an AI agent to this book, point it at <code>https://dxuvfvvdggtfqfoddiuv.supabase.co/functions/v1/recipe-mcp</code>. It signs in as you and asks your approval on the consent screen — no token to copy.</p>' +
     '</details></div>';
   $("settingsForm").addEventListener("submit", function(e){
     e.preventDefault();
@@ -2182,21 +2180,6 @@ function renderSettings(){
       DB.profiles.update(S.user.id, { dietary_allow_list: allowList, dietary_deny_list: denyList })
         .then(function(res){ if (res.error) throw res.error; toast("Your dietary restrictions are saved."); return refresh(); }).catch(fail);
     });
-  });
-  $("settingsShowToken").addEventListener("click", function(){
-    DB.auth.getSession().then(function(res){
-      var tok = res && res.data && res.data.session ? res.data.session.access_token : null;
-      if (!tok){ $("settingsTokenHint").textContent = "No active session — sign out and back in, then try again."; return; }
-      $("settingsToken").value = tok;
-      $("settingsTokenBox").hidden = false;
-      $("settingsTokenHint").textContent = "Expires in about an hour.";
-    }).catch(fail);
-  });
-  $("settingsCopyToken").addEventListener("click", function(){
-    var el = $("settingsToken");
-    el.select();
-    if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(el.value).then(function(){ toast("Token copied."); }).catch(function(){ document.execCommand("copy"); toast("Token copied."); }); }
-    else { document.execCommand("copy"); toast("Token copied."); }
   });
 }
 
